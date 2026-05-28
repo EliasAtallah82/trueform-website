@@ -110,7 +110,8 @@ export default function TailorDashboard() {
           {[
             { icon: '👔', title: 'My Catalog', desc: 'Add and manage your items', href: '/dashboard/tailor/catalog' },
             { icon: '📋', title: 'My Orders', desc: 'View and manage incoming orders', href: '#' },
-            { icon: '👤', title: 'My Profile', desc: 'Update your skills, styles and photos', href: '#' },
+            { icon: '👤', title: 'My Profile', desc: 'Update your skills, styles and photos', href: '/dashboard/tailor/profile' },
+            { icon: '📬', title: 'Invitations', desc: 'Accept items from TrueForm', href: '/dashboard/tailor/invitations' },
             { icon: '🧵', title: 'My Inventory', desc: 'Manage your fabrics and colors', href: '#' },
             { icon: '📅', title: 'My Calendar', desc: 'Set your availability', href: '#' },
             { icon: '💰', title: 'My Earnings', desc: 'Track your payments and history', href: '#' },

@@ -2,6 +2,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../../lib/supabase'
 
+const SKILLS = [
+  'Suits & Blazers', 'Shirts & Tops', 'Trousers & Pants',
+  'Thobes & Kanduras', 'Abayas & Modest Wear', 'Dresses & Skirts',
+  'Full Outfits', 'Alterations', 'Embroidery', 'Monogramming',
+  'Lining Work', 'Pattern Making', 'Bespoke Tailoring',
+  'Kids Clothing', 'Wedding Wear', 'Traditional Wear'
+]
+
 export default function AdminCatalog() {
   const [user, setUser] = useState(null)
   const [items, setItems] = useState([])
@@ -12,7 +20,8 @@ export default function AdminCatalog() {
     name: '', description: '', category: '', gender: '',
     occasion: '', modesty_level: '', fabrics: '', colors: '',
     price: '', turnaround_days: '', is_active: true,
-    photo_main: '', photo_back: '', photo_detail: '', photo_model: ''
+    photo_main: '', photo_back: '', photo_detail: '', photo_model: '',
+    required_skills: []
   })
 
   useEffect(() => {
@@ -34,16 +43,9 @@ export default function AdminCatalog() {
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${photoType}.${fileExt}`
     const { data, error } = await supabase.storage
-      .from('catalog-photos')
-      .upload(fileName, file)
-    if (error) {
-      alert('Upload error: ' + error.message)
-      setUploading(prev => ({ ...prev, [photoType]: false }))
-      return
-    }
-    const { data: urlData } = supabase.storage
-      .from('catalog-photos')
-      .getPublicUrl(fileName)
+      .from('catalog-photos').upload(fileName, file)
+    if (error) { alert('Upload error: ' + error.message); setUploading(prev => ({ ...prev, [photoType]: false })); return }
+    const { data: urlData } = supabase.storage.from('catalog-photos').getPublicUrl(fileName)
     setNewItem(prev => ({ ...prev, [photoType]: urlData.publicUrl }))
     setUploading(prev => ({ ...prev, [photoType]: false }))
   }
@@ -55,10 +57,8 @@ export default function AdminCatalog() {
     const trueformFee = net * 0.15
     const tailorCut = net * 0.85
     return {
-      selling: selling.toFixed(2),
-      vat: vat.toFixed(2),
-      net: net.toFixed(2),
-      trueformFee: trueformFee.toFixed(2),
+      selling: selling.toFixed(2), vat: vat.toFixed(2),
+      net: net.toFixed(2), trueformFee: trueformFee.toFixed(2),
       tailorCut: tailorCut.toFixed(2)
     }
   }
@@ -66,19 +66,14 @@ export default function AdminCatalog() {
   const generateAIPrompt = () => {
     const parts = [
       'Professional fashion photography',
-      newItem.name && newItem.name,
-      newItem.category && newItem.category,
+      newItem.name, newItem.category,
       newItem.gender && `for ${newItem.gender}`,
       newItem.colors && `in ${newItem.colors}`,
       newItem.fabrics && `made of ${newItem.fabrics}`,
       newItem.modesty_level && `${newItem.modesty_level} style`,
-      newItem.description && newItem.description,
-      'front view',
-      'white background',
-      'studio lighting',
-      'high quality commercial fashion photography',
-      'no model',
-      'flat lay or mannequin'
+      newItem.description,
+      'front view', 'white background', 'studio lighting',
+      'high quality commercial fashion photography', 'no model', 'flat lay or mannequin'
     ].filter(Boolean)
     return parts.join(', ')
   }
@@ -86,6 +81,38 @@ export default function AdminCatalog() {
   const copyPrompt = () => {
     navigator.clipboard.writeText(generateAIPrompt())
     alert('✅ AI prompt copied! Paste it into Midjourney or DALL-E')
+  }
+
+  const toggleSkill = (skill) => {
+    setNewItem(prev => ({
+      ...prev,
+      required_skills: prev.required_skills.includes(skill)
+        ? prev.required_skills.filter(s => s !== skill)
+        : [...prev.required_skills, skill]
+    }))
+  }
+
+  const inviteMatchingTailors = async (catalogId, requiredSkills) => {
+    if (!requiredSkills.length) return 0
+    const { data: tailors } = await supabase
+      .from('tailor_profiles')
+      .select('user_id, skills')
+    if (!tailors) return 0
+    const matchingTailors = tailors.filter(tailor => {
+      if (!tailor.skills) return false
+      const tailorSkills = tailor.skills.split(',')
+      return requiredSkills.some(skill => tailorSkills.includes(skill))
+    })
+    if (matchingTailors.length > 0) {
+      await supabase.from('tailor_catalog_items').insert(
+        matchingTailors.map(tailor => ({
+          catalog_id: catalogId,
+          tailor_id: tailor.user_id,
+          status: 'pending'
+        }))
+      )
+    }
+    return matchingTailors.length
   }
 
   const handleSave = async () => {
@@ -100,19 +127,29 @@ export default function AdminCatalog() {
     setSaving(true)
     const { data, error } = await supabase.from('catalog').insert({
       ...newItem,
+      required_skills: newItem.required_skills.join(','),
       price: parseFloat(newItem.price),
-      turnaround_days: parseInt(newItem.turnaround_days) || 7
+      turnaround_days: parseInt(newItem.turnaround_days) || 7,
+      status: 'approved',
+      is_active: true,
+      created_by: 'admin',
+      ai_prompt: generateAIPrompt()
     }).select()
+
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
+
     if (data) {
+      const invitedCount = await inviteMatchingTailors(data[0].id, newItem.required_skills)
       setItems([data[0], ...items])
       setShowAddForm(false)
       setNewItem({
         name: '', description: '', category: '', gender: '',
         occasion: '', modesty_level: '', fabrics: '', colors: '',
         price: '', turnaround_days: '', is_active: true,
-        photo_main: '', photo_back: '', photo_detail: '', photo_model: ''
+        photo_main: '', photo_back: '', photo_detail: '', photo_model: '',
+        required_skills: []
       })
+      alert(`✅ Item added! ${invitedCount} tailor(s) invited to fulfill this item!`)
     }
     setSaving(false)
   }
@@ -123,23 +160,15 @@ export default function AdminCatalog() {
   }
 
   const deleteItem = async (id) => {
-    if (!confirm('Are you sure you want to delete this item?')) return
+    if (!confirm('Are you sure?')) return
     await supabase.from('catalog').delete().eq('id', id)
     setItems(items.filter(item => item.id !== id))
   }
 
   if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
 
-  const inputStyle = {
-    width: '100%', padding: '10px', borderRadius: '8px',
-    border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box'
-  }
-
-  const selectStyle = {
-    width: '100%', padding: '10px', borderRadius: '8px',
-    border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white'
-  }
-
+  const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }
+  const selectStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }
   const pricing = newItem.price ? calcPricing(newItem.price) : null
 
   const PhotoUpload = ({ label, photoType, isMain }) => (
@@ -153,26 +182,19 @@ export default function AdminCatalog() {
       </div>
       {newItem[photoType] ? (
         <div>
-          <img src={newItem[photoType]} alt={label}
-            style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
+          <img src={newItem[photoType]} alt={label} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
           <button onClick={() => setNewItem(prev => ({ ...prev, [photoType]: '' }))}
-            style={{ fontSize: '11px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>
-            Remove
-          </button>
+            style={{ fontSize: '11px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>
         </div>
       ) : (
         <div>
           <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
           <label style={{ cursor: 'pointer' }}>
-            <span style={{
-              fontSize: '12px', backgroundColor: '#1a1a1a', color: 'white',
-              padding: '6px 12px', borderRadius: '6px'
-            }}>
+            <span style={{ fontSize: '12px', backgroundColor: '#1a1a1a', color: 'white', padding: '6px 12px', borderRadius: '6px' }}>
               {uploading[photoType] ? 'Uploading...' : 'Upload Photo'}
             </span>
             <input type="file" accept="image/*" style={{ display: 'none' }}
-              onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], photoType)}
-            />
+              onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], photoType)} />
           </label>
         </div>
       )}
@@ -181,10 +203,7 @@ export default function AdminCatalog() {
 
   return (
     <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
-      <nav style={{
-        backgroundColor: '#1a1a1a', padding: '16px 40px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-      }}>
+      <nav style={{ backgroundColor: '#1a1a1a', padding: '16px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1 style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>✂️ TrueForm — Admin</h1>
         <a href="/dashboard/admin" style={{ color: 'white', fontSize: '14px' }}>← Back to Dashboard</a>
       </nav>
@@ -195,15 +214,11 @@ export default function AdminCatalog() {
             <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>👔 Catalog Management</h2>
             <p style={{ color: '#888', fontSize: '14px' }}>{items.length} items in catalog</p>
           </div>
-          <button onClick={() => setShowAddForm(!showAddForm)} style={{
-            padding: '12px 24px', backgroundColor: '#1a1a1a', color: 'white',
-            border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold'
-          }}>
+          <button onClick={() => setShowAddForm(!showAddForm)} style={{ padding: '12px 24px', backgroundColor: '#1a1a1a', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>
             {showAddForm ? '✕ Cancel' : '➕ Add Item'}
           </button>
         </div>
 
-        {/* Add Item Form */}
         {showAddForm && (
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px', marginBottom: '24px' }}>
             <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '24px' }}>Add New Item</h3>
@@ -213,33 +228,18 @@ export default function AdminCatalog() {
               <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
                 Photos <span style={{ color: '#dc2626' }}>*</span>
               </label>
-              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
-                All photos must be front-facing with white/neutral background for brand consistency.
-              </p>
+              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>All photos must be front-facing with white/neutral background.</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                 <PhotoUpload label="⭐ Front View (Main)" photoType="photo_main" isMain={true} />
                 <PhotoUpload label="Back View" photoType="photo_back" isMain={false} />
                 <PhotoUpload label="Detail Shot" photoType="photo_detail" isMain={false} />
                 <PhotoUpload label="On Model" photoType="photo_model" isMain={false} />
               </div>
-
-              {/* AI Prompt Generator */}
               {(newItem.name || newItem.category || newItem.colors) && (
-                <div style={{
-                  marginTop: '16px', padding: '16px', backgroundColor: '#1a1a1a',
-                  borderRadius: '12px'
-                }}>
-                  <div style={{ fontSize: '13px', color: '#aaa', marginBottom: '8px' }}>
-                    🤖 Suggested AI prompt (based on your inputs):
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#fff', marginBottom: '12px', lineHeight: '1.6' }}>
-                    {generateAIPrompt()}
-                  </div>
-                  <button onClick={copyPrompt} style={{
-                    padding: '8px 16px', backgroundColor: 'white', color: '#1a1a1a',
-                    border: 'none', borderRadius: '8px', cursor: 'pointer',
-                    fontSize: '13px', fontWeight: 'bold'
-                  }}>
+                <div style={{ marginTop: '16px', padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '12px' }}>
+                  <div style={{ fontSize: '13px', color: '#aaa', marginBottom: '8px' }}>🤖 Suggested AI prompt:</div>
+                  <div style={{ fontSize: '12px', color: '#fff', marginBottom: '12px', lineHeight: '1.6' }}>{generateAIPrompt()}</div>
+                  <button onClick={copyPrompt} style={{ padding: '8px 16px', backgroundColor: 'white', color: '#1a1a1a', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
                     📋 Copy AI Prompt
                   </button>
                 </div>
@@ -249,55 +249,37 @@ export default function AdminCatalog() {
             {/* Name */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Item Name *</label>
-              <input value={newItem.name}
-                onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
+              <input value={newItem.name} onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g. Classic Navy Linen Shirt" style={inputStyle} />
             </div>
 
             {/* Description */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Description</label>
-              <textarea value={newItem.description}
-                onChange={(e) => setNewItem(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Describe this item..." rows={3}
-                style={{ ...inputStyle, resize: 'vertical' }} />
+              <textarea value={newItem.description} onChange={(e) => setNewItem(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Describe this item..." rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
             </div>
 
             {/* Price */}
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                Selling Price — VAT Inclusive (AED) *
-              </label>
-              <input type="number" value={newItem.price}
-                onChange={(e) => setNewItem(prev => ({ ...prev, price: e.target.value }))}
+              <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Selling Price — VAT Inclusive (AED) *</label>
+              <input type="number" value={newItem.price} onChange={(e) => setNewItem(prev => ({ ...prev, price: e.target.value }))}
                 placeholder="e.g. 250" style={{ ...inputStyle, maxWidth: '200px' }} />
-
               {pricing && (
-                <div style={{
-                  marginTop: '12px', padding: '16px', backgroundColor: '#f5f0eb',
-                  borderRadius: '10px', maxWidth: '320px'
-                }}>
+                <div style={{ marginTop: '12px', padding: '16px', backgroundColor: '#f5f0eb', borderRadius: '10px', maxWidth: '320px' }}>
                   <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '10px' }}>💰 Pricing Breakdown</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
-                    <span style={{ color: '#555' }}>Selling Price (incl. VAT):</span>
-                    <span style={{ fontWeight: 'bold' }}>AED {pricing.selling}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
-                    <span style={{ color: '#555' }}>VAT (5%):</span>
-                    <span style={{ color: '#dc2626' }}>- AED {pricing.vat}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px', borderTop: '1px solid #ddd', paddingTop: '6px' }}>
-                    <span style={{ color: '#555' }}>Net Price (excl. VAT):</span>
-                    <span>AED {pricing.net}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
-                    <span style={{ color: '#555' }}>TrueForm Fee (15%):</span>
-                    <span style={{ color: '#dc2626' }}>- AED {pricing.trueformFee}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderTop: '1px solid #ddd', paddingTop: '6px' }}>
-                    <span style={{ fontWeight: 'bold' }}>Tailor net cut (excl. VAT):</span>
-                    <span style={{ fontWeight: 'bold', color: '#16a34a' }}>AED {pricing.tailorCut}</span>
-                  </div>
+                  {[
+                    { label: 'Selling Price (incl. VAT):', value: `AED ${pricing.selling}`, bold: true },
+                    { label: 'VAT (5%):', value: `- AED ${pricing.vat}`, red: true },
+                    { label: 'Net Price (excl. VAT):', value: `AED ${pricing.net}`, border: true },
+                    { label: 'TrueForm Fee (15%):', value: `- AED ${pricing.trueformFee}`, red: true },
+                    { label: 'Tailor net cut (excl. VAT):', value: `AED ${pricing.tailorCut}`, green: true, border: true },
+                  ].map((row) => (
+                    <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px', borderTop: row.border ? '1px solid #ddd' : 'none', paddingTop: row.border ? '6px' : '0' }}>
+                      <span style={{ color: row.bold ? '#1a1a1a' : '#555', fontWeight: row.bold ? 'bold' : 'normal' }}>{row.label}</span>
+                      <span style={{ color: row.green ? '#16a34a' : row.red ? '#dc2626' : '#1a1a1a', fontWeight: row.bold || row.green ? 'bold' : 'normal' }}>{row.value}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -306,8 +288,7 @@ export default function AdminCatalog() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Category *</label>
-                <select value={newItem.category}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, category: e.target.value }))} style={selectStyle}>
+                <select value={newItem.category} onChange={(e) => setNewItem(prev => ({ ...prev, category: e.target.value }))} style={selectStyle}>
                   <option value="">Select category</option>
                   <option value="Shirt / Top">Shirt / Top</option>
                   <option value="Trousers / Pants">Trousers / Pants</option>
@@ -321,8 +302,7 @@ export default function AdminCatalog() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Gender</label>
-                <select value={newItem.gender}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, gender: e.target.value }))} style={selectStyle}>
+                <select value={newItem.gender} onChange={(e) => setNewItem(prev => ({ ...prev, gender: e.target.value }))} style={selectStyle}>
                   <option value="">Select gender</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
@@ -336,14 +316,12 @@ export default function AdminCatalog() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Occasion</label>
-                <input value={newItem.occasion}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, occasion: e.target.value }))}
+                <input value={newItem.occasion} onChange={(e) => setNewItem(prev => ({ ...prev, occasion: e.target.value }))}
                   placeholder="e.g. Work, Wedding, Casual" style={inputStyle} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Modesty Level</label>
-                <select value={newItem.modesty_level}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, modesty_level: e.target.value }))} style={selectStyle}>
+                <select value={newItem.modesty_level} onChange={(e) => setNewItem(prev => ({ ...prev, modesty_level: e.target.value }))} style={selectStyle}>
                   <option value="">Select modesty</option>
                   <option value="Fully Covered">Fully Covered</option>
                   <option value="Modest & Elegant">Modest & Elegant</option>
@@ -357,24 +335,44 @@ export default function AdminCatalog() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Available Fabrics</label>
-                <input value={newItem.fabrics}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, fabrics: e.target.value }))}
+                <input value={newItem.fabrics} onChange={(e) => setNewItem(prev => ({ ...prev, fabrics: e.target.value }))}
                   placeholder="e.g. Linen, Cotton, Wool" style={inputStyle} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Available Colors</label>
-                <input value={newItem.colors}
-                  onChange={(e) => setNewItem(prev => ({ ...prev, colors: e.target.value }))}
+                <input value={newItem.colors} onChange={(e) => setNewItem(prev => ({ ...prev, colors: e.target.value }))}
                   placeholder="e.g. Navy, White, Black" style={inputStyle} />
               </div>
             </div>
 
             {/* Turnaround */}
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Turnaround (days)</label>
-              <input type="number" value={newItem.turnaround_days}
-                onChange={(e) => setNewItem(prev => ({ ...prev, turnaround_days: e.target.value }))}
+              <input type="number" value={newItem.turnaround_days} onChange={(e) => setNewItem(prev => ({ ...prev, turnaround_days: e.target.value }))}
                 placeholder="e.g. 7" style={{ ...inputStyle, maxWidth: '200px' }} />
+            </div>
+
+            {/* Required Skills */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
+                Required Skills to Fulfill This Item
+              </label>
+              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
+                Tailors with these skills will be automatically invited to fulfill this item
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' }}>
+                {SKILLS.map((skill) => (
+                  <button key={skill} onClick={() => toggleSkill(skill)} style={{
+                    padding: '10px 14px', borderRadius: '8px', cursor: 'pointer',
+                    textAlign: 'left', fontSize: '13px',
+                    border: newItem.required_skills.includes(skill) ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: newItem.required_skills.includes(skill) ? '#1a1a1a' : 'white',
+                    color: newItem.required_skills.includes(skill) ? 'white' : '#555'
+                  }}>
+                    {newItem.required_skills.includes(skill) ? '✅ ' : ''}{skill}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Active */}
@@ -390,17 +388,14 @@ export default function AdminCatalog() {
               width: '100%', padding: '14px', backgroundColor: '#1a1a1a', color: 'white',
               border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer'
             }}>
-              {saving ? 'Saving...' : '✅ Add to Catalog'}
+              {saving ? 'Saving & Inviting Tailors...' : '✅ Add to Catalog & Invite Tailors'}
             </button>
           </div>
         )}
 
         {/* Catalog Items */}
         {items.length === 0 ? (
-          <div style={{
-            backgroundColor: 'white', borderRadius: '16px', padding: '60px',
-            textAlign: 'center', color: '#888'
-          }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#888' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>👔</div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>No items yet</h3>
             <p>Click "Add Item" to start building your catalog!</p>
@@ -420,48 +415,34 @@ export default function AdminCatalog() {
                     <div style={{ fontSize: '60px' }}>👔</div>
                   )}
                   {!item.is_active && (
-                    <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#fee2e2', color: '#dc2626', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>
-                      Hidden
-                    </div>
+                    <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#fee2e2', color: '#dc2626', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>Hidden</div>
                   )}
+                  <div style={{ position: 'absolute', top: '8px', left: '8px', backgroundColor: item.created_by === 'admin' ? '#dbeafe' : '#f0fdf4', color: item.created_by === 'admin' ? '#1e40af' : '#166534', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>
+                    {item.created_by === 'admin' ? '👑 Admin' : '✂️ Tailor'}
+                  </div>
                 </div>
                 <div style={{ padding: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                     <h3 style={{ fontWeight: 'bold', fontSize: '16px' }}>{item.name}</h3>
-                    <span style={{ fontWeight: 'bold', color: '#1a1a1a' }}>AED {item.price}</span>
+                    <span style={{ fontWeight: 'bold' }}>AED {item.price}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     {item.category && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.category}</span>}
                     {item.gender && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.gender}</span>}
                     {item.modesty_level && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.modesty_level}</span>}
                   </div>
-                  {item.description && <p style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>{item.description}</p>}
-                  <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>⏱️ {item.turnaround_days || 7} days turnaround</div>
                   <div style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '8px', borderRadius: '8px', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#888' }}>Tailor net cut:</span>
                       <span style={{ color: '#16a34a', fontWeight: 'bold' }}>AED {(item.price / 1.05 * 0.85).toFixed(2)}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#888' }}>TrueForm fee:</span>
-                      <span>AED {(item.price / 1.05 * 0.15).toFixed(2)}</span>
-                    </div>
                   </div>
-                  {(item.photo_back || item.photo_detail || item.photo_model) && (
-                    <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
-                      {[item.photo_back, item.photo_detail, item.photo_model].filter(Boolean).map((photo, i) => (
-                        <img key={i} src={photo} alt="" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px' }} />
-                      ))}
-                    </div>
-                  )}
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={() => toggleActive(item.id, item.is_active)} style={{
                       flex: 1, padding: '8px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px',
                       backgroundColor: item.is_active ? '#fee2e2' : '#dcfce7',
                       color: item.is_active ? '#dc2626' : '#16a34a', border: 'none'
-                    }}>
-                      {item.is_active ? 'Hide' : 'Show'}
-                    </button>
+                    }}>{item.is_active ? 'Hide' : 'Show'}</button>
                     <button onClick={() => deleteItem(item.id)} style={{
                       flex: 1, padding: '8px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px',
                       backgroundColor: '#fee2e2', color: '#dc2626', border: 'none'
