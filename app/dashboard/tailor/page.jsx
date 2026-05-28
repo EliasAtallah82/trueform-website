@@ -57,20 +57,21 @@ export default function TailorDashboard() {
           Welcome, {user.user_metadata.full_name}! ✂️
         </h2>
         <p style={{ color: '#555', marginBottom: '20px' }}>
-  Manage your orders, inventory and profile
-</p>
+          Manage your orders, inventory and profile
+        </p>
 
-<div style={{
-  backgroundColor: '#fff8e1',
-  border: '1px solid #ffe082',
-  borderRadius: '10px',
-  padding: '14px 20px',
-  marginBottom: '40px',
-  fontSize: '14px',
-  color: '#7a6000'
-}}>
-  🔒 <strong>TrueForm Privacy Policy:</strong> You will only see order details. Customer personal information is managed exclusively by TrueForm.
-</div>
+        {/* Privacy Notice */}
+        <div style={{
+          backgroundColor: '#fff8e1',
+          border: '1px solid #ffe082',
+          borderRadius: '10px',
+          padding: '14px 20px',
+          marginBottom: '40px',
+          fontSize: '14px',
+          color: '#7a6000'
+        }}>
+          🔒 <strong>TrueForm Privacy Policy:</strong> You will only see order details. Customer personal information is managed exclusively by TrueForm.
+        </div>
 
         {/* Stats Row */}
         <div style={{
@@ -107,24 +108,30 @@ export default function TailorDashboard() {
           gap: '20px'
         }}>
           {[
-            { icon: '👤', title: 'My Profile', desc: 'Update your skills, styles and photos' },
-            { icon: '🧵', title: 'My Inventory', desc: 'Manage your fabrics and colors' },
-            { icon: '📋', title: 'My Orders', desc: 'View and manage incoming orders' },
-            { icon: '📅', title: 'My Calendar', desc: 'Set your availability' },
-            { icon: '🎧', title: 'TrueForm Support', desc: 'Contact TrueForm for help' },
-            { icon: '⭐', title: 'My Reviews', desc: 'See customer feedback' }
+            { icon: '👔', title: 'My Catalog', desc: 'Add and manage your items', href: '/dashboard/tailor/catalog' },
+            { icon: '📋', title: 'My Orders', desc: 'View and manage incoming orders', href: '#' },
+            { icon: '👤', title: 'My Profile', desc: 'Update your skills, styles and photos', href: '#' },
+            { icon: '🧵', title: 'My Inventory', desc: 'Manage your fabrics and colors', href: '#' },
+            { icon: '📅', title: 'My Calendar', desc: 'Set your availability', href: '#' },
+            { icon: '💰', title: 'My Earnings', desc: 'Track your payments and history', href: '#' },
+            { icon: '⭐', title: 'My Reviews', desc: 'See customer feedback', href: '#' },
+            { icon: '🎧', title: 'TrueForm Support', desc: 'Contact TrueForm for help', href: '#' },
           ].map((card) => (
-            <div key={card.title} style={{
-              backgroundColor: 'white',
-              borderRadius: '12px',
-              padding: '30px',
-              textAlign: 'center',
-              cursor: 'pointer'
-            }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>{card.icon}</div>
-              <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>{card.title}</h3>
-              <p style={{ color: '#555', fontSize: '14px' }}>{card.desc}</p>
-            </div>
+            <a key={card.title} href={card.href} style={{ textDecoration: 'none' }}>
+              <div style={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                padding: '30px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'transform 0.2s',
+                height: '100%'
+              }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>{card.icon}</div>
+                <h3 style={{ fontWeight: 'bold', marginBottom: '8px', color: '#1a1a1a' }}>{card.title}</h3>
+                <p style={{ color: '#555', fontSize: '14px' }}>{card.desc}</p>
+              </div>
+            </a>
           ))}
         </div>
       </div>
