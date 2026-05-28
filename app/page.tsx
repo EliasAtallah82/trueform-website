@@ -90,6 +90,7 @@ export default function Home() {
           gap: '40px',
           flexWrap: 'wrap'
         }}>
+          {/* Step 1 */}
           <div style={{
             backgroundColor: '#f5f0eb',
             borderRadius: '12px',
@@ -104,6 +105,8 @@ export default function Home() {
               Scan your body using your phone camera in seconds
             </p>
           </div>
+
+          {/* Step 2 */}
           <div style={{
             backgroundColor: '#f5f0eb',
             borderRadius: '12px',
@@ -118,6 +121,8 @@ export default function Home() {
               Browse our fabrics and styles to find your perfect look
             </p>
           </div>
+
+          {/* Step 3 */}
           <div style={{
             backgroundColor: '#f5f0eb',
             borderRadius: '12px',
@@ -132,6 +137,8 @@ export default function Home() {
               Expert tailors craft your outfit to your exact measurements
             </p>
           </div>
+
+          {/* Step 4 */}
           <div style={{
             backgroundColor: '#f5f0eb',
             borderRadius: '12px',
