@@ -2,16 +2,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
-const UAE_DATA = {
-  'Abu Dhabi': ['Abu Dhabi', 'Al Ain', 'Al Dhafra'],
-  'Dubai': ['Dubai'],
-  'Sharjah': ['Sharjah', 'Khor Fakkan', 'Kalba', 'Dibba Al Hisn'],
-  'Ajman': ['Ajman'],
-  'Umm Al Quwain': ['Umm Al Quwain'],
-  'Ras Al Khaimah': ['Ras Al Khaimah', 'Al Jazirah Al Hamra'],
-  'Fujairah': ['Fujairah', 'Dibba Al Fujairah']
-}
-
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -23,9 +13,7 @@ export default function Profile() {
     name: '', relationship: '', gender: '', date_of_birth: ''
   })
   const [profile, setProfile] = useState({
-    full_name: '', phone: '', gender: '', date_of_birth: '',
-    apt_number: '', floor: '', street: '', area: '', city: '', emirate: '',
-    country: 'United Arab Emirates'
+    full_name: '', phone: '', gender: '', date_of_birth: ''
   })
 
   useEffect(() => {
@@ -49,10 +37,6 @@ export default function Profile() {
     if (!profile.phone) newErrors.phone = 'Required'
     if (!profile.gender) newErrors.gender = 'Required'
     if (!profile.date_of_birth) newErrors.date_of_birth = 'Required'
-    if (!profile.apt_number) newErrors.apt_number = 'Required'
-    if (!profile.area) newErrors.area = 'Required'
-    if (!profile.city) newErrors.city = 'Required'
-    if (!profile.emirate) newErrors.emirate = 'Required'
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -118,7 +102,6 @@ export default function Profile() {
     border: hasError ? '1px solid #dc2626' : '1px solid #ddd'
   })
 
-  const labelStyle = { display: 'block', fontSize: '12px', color: '#888', marginBottom: '4px' }
   const errorStyle = { fontSize: '11px', color: '#dc2626', marginTop: '4px' }
   const requiredStar = <span style={{ color: '#dc2626' }}>*</span>
 
@@ -209,92 +192,6 @@ export default function Profile() {
               ))}
             </div>
             {errors.gender && <p style={errorStyle}>Please select your gender</p>}
-          </div>
-
-          {/* Delivery Address */}
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', fontWeight: '500', marginBottom: '12px', fontSize: '14px' }}>
-              Delivery Address
-            </label>
-
-            {/* Flat No + Floor */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-              <div>
-                <label style={labelStyle}>Flat No. {requiredStar}</label>
-                <input type="number" value={profile.apt_number || ''}
-                  onChange={(e) => setProfile({ ...profile, apt_number: e.target.value })}
-                  placeholder="e.g. 204"
-                  style={inputStyle(errors.apt_number)}
-                />
-                {errors.apt_number && <p style={errorStyle}>Required</p>}
-              </div>
-              <div>
-                <label style={labelStyle}>Floor</label>
-                <input type="number" value={profile.floor || ''}
-                  onChange={(e) => setProfile({ ...profile, floor: e.target.value })}
-                  placeholder="e.g. 3"
-                  style={inputStyle(false)}
-                />
-              </div>
-            </div>
-
-            {/* Street */}
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>Street Name</label>
-              <input type="text" value={profile.street || ''}
-                onChange={(e) => setProfile({ ...profile, street: e.target.value })}
-                placeholder="e.g. Sheikh Zayed Road"
-                style={inputStyle(false)}
-              />
-            </div>
-
-            {/* Area */}
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>Area / Neighborhood {requiredStar}</label>
-              <input type="text" value={profile.area || ''}
-                onChange={(e) => setProfile({ ...profile, area: e.target.value })}
-                placeholder="e.g. Jumeirah, Marina, Downtown"
-                style={inputStyle(errors.area)}
-              />
-              {errors.area && <p style={errorStyle}>Required</p>}
-            </div>
-
-            {/* City */}
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>City {requiredStar}</label>
-              <select value={profile.city || ''}
-                onChange={(e) => setProfile({ ...profile, city: e.target.value })}
-                disabled={!profile.emirate}
-                style={{ ...selectStyle(errors.city), opacity: !profile.emirate ? 0.5 : 1 }}>
-                <option value="">Select City</option>
-                {profile.emirate && UAE_DATA[profile.emirate]?.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              {errors.city && <p style={errorStyle}>Required</p>}
-            </div>
-
-            {/* Emirate */}
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>Emirate {requiredStar}</label>
-              <select value={profile.emirate || ''}
-                onChange={(e) => setProfile({ ...profile, emirate: e.target.value, city: '' })}
-                style={selectStyle(errors.emirate)}>
-                <option value="">Select Emirate</option>
-                {Object.keys(UAE_DATA).map(e => (
-                  <option key={e} value={e}>{e}</option>
-                ))}
-              </select>
-              {errors.emirate && <p style={errorStyle}>Required</p>}
-            </div>
-
-            {/* Country */}
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>Country</label>
-              <select value="United Arab Emirates" style={selectStyle(false)}>
-                <option value="United Arab Emirates">United Arab Emirates</option>
-              </select>
-            </div>
           </div>
 
           {/* Measurements */}
