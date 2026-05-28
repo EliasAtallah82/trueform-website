@@ -110,7 +110,7 @@ export default function CustomerDashboard() {
           }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>🚚</div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Track Order</h3>
-            <p style={{ color: '#555', fontSize: '14px' }}>See your order status live</p>
+            <p style={{ color: '#555', fontSize: '14px' }}>Get live updates from TrueForm</p>
           </div>
         </div>
       </div>
