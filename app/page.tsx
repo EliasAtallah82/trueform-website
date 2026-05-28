@@ -3,7 +3,6 @@
 export default function Home() {
   return (
     <main>
-      {/* Navigation Bar */}
       <nav style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -29,7 +28,6 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section */}
       <section style={{
         backgroundColor: '#f5f0eb',
         padding: '100px 40px',
@@ -71,17 +69,11 @@ export default function Home() {
             border: '2px solid #1a1a1a'
           }}>Login</a>
         </div>
-        {/* AI Advisor Hint */}
-        <p style={{
-          fontSize: '15px',
-          color: '#888',
-          marginTop: '8px'
-        }}>
+        <p style={{ fontSize: '15px', color: '#888', marginTop: '8px' }}>
           ✨ Get AI-powered outfit recommendations tailored to your body and style
         </p>
       </section>
 
-      {/* How It Works Section */}
       <section style={{
         padding: '80px 40px',
         backgroundColor: 'white',

@@ -1,0 +1,483 @@
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+
+export default function NewOrder() {
+  const [user, setUser] = useState(null)
+  const [familyMembers, setFamilyMembers] = useState([])
+  const [step, setStep] = useState(1)
+  const [selectedMember, setSelectedMember] = useState(null)
+  const [showAddMember, setShowAddMember] = useState(false)
+  const [newMember, setNewMember] = useState({ name: '', relationship: '', gender: '', age: '' })
+  const [orderDetails, setOrderDetails] = useState({
+    occasion: [],
+    garment_type: [],
+    modesty: '',
+    budget_range: ''
+  })
+
+  useEffect(() => {
+    const init = async () => {
+      const { data } = await supabase.auth.getUser()
+      if (!data.user) window.location.href = '/auth/login'
+      else {
+        setUser(data.user)
+        const { data: members } = await supabase
+          .from('family_members')
+          .select('*')
+          .eq('owner_id', data.user.id)
+        setFamilyMembers(members || [])
+      }
+    }
+    init()
+  }, [])
+
+  const addFamilyMember = async () => {
+    const { data } = await supabase.from('family_members').insert({
+      owner_id: user.id,
+      ...newMember
+    }).select()
+    if (data) {
+      setFamilyMembers([...familyMembers, data[0]])
+      setShowAddMember(false)
+      setNewMember({ name: '', relationship: '', gender: '', age: '' })
+    }
+  }
+
+  const handleOrderSelect = (field, value, multi = false) => {
+    if (multi) {
+      const current = orderDetails[field]
+      if (current.includes(value)) {
+        setOrderDetails({ ...orderDetails, [field]: current.filter(v => v !== value) })
+      } else {
+        setOrderDetails({ ...orderDetails, [field]: [...current, value] })
+      }
+    } else {
+      setOrderDetails({ ...orderDetails, [field]: value })
+    }
+  }
+
+  const handleNext = () => setStep(step + 1)
+  const handleBack = () => setStep(step - 1)
+
+  if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
+
+  return (
+    <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
+      {/* Nav */}
+      <nav style={{
+        backgroundColor: '#1a1a1a',
+        padding: '16px 40px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <h1 style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>✂️ TrueForm</h1>
+        <a href="/dashboard/customer" style={{ color: 'white', fontSize: '14px' }}>← Back to Dashboard</a>
+      </nav>
+
+      <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto' }}>
+
+        {/* Progress */}
+        <div style={{ marginBottom: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '14px', color: '#888' }}>Step {step} of 3</span>
+            <span style={{ fontSize: '14px', color: '#888' }}>{Math.round((step / 3) * 100)}%</span>
+          </div>
+          <div style={{ height: '6px', backgroundColor: '#e0e0e0', borderRadius: '3px' }}>
+            <div style={{
+              height: '6px',
+              backgroundColor: '#1a1a1a',
+              borderRadius: '3px',
+              width: `${(step / 3) * 100}%`,
+              transition: 'width 0.4s ease'
+            }}/>
+          </div>
+        </div>
+
+        {/* Step 1 — Who is this for? */}
+        {step === 1 && (
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
+              Who is this order for?
+            </h2>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
+              Select a person or add someone new
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              {/* Myself */}
+              <button
+                onClick={() => setSelectedMember('myself')}
+                style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  border: selectedMember === 'myself' ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                  backgroundColor: selectedMember === 'myself' ? '#f5f0eb' : 'white',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>👤</div>
+                <div style={{ fontWeight: 'bold' }}>{user.user_metadata.full_name}</div>
+                <div style={{ fontSize: '12px', color: '#888' }}>Myself</div>
+              </button>
+
+              {/* Family Members */}
+              {familyMembers.map((member) => (
+                <button
+                  key={member.id}
+                  onClick={() => setSelectedMember(member.id)}
+                  style={{
+                    padding: '20px',
+                    borderRadius: '12px',
+                    border: selectedMember === member.id ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: selectedMember === member.id ? '#f5f0eb' : 'white',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}
+                >
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>
+                    {member.relationship === 'wife' ? '👩' :
+                     member.relationship === 'son' ? '👦' :
+                     member.relationship === 'daughter' ? '👧' :
+                     member.relationship === 'father' ? '👴' :
+                     member.relationship === 'mother' ? '👵' : '👤'}
+                  </div>
+                  <div style={{ fontWeight: 'bold' }}>{member.name}</div>
+                  <div style={{ fontSize: '12px', color: '#888' }}>{member.relationship}</div>
+                </button>
+              ))}
+
+              {/* Add New */}
+              <button
+                onClick={() => setShowAddMember(true)}
+                style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  border: '2px dashed #e0e0e0',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>➕</div>
+                <div style={{ fontWeight: 'bold', color: '#888' }}>Add Person</div>
+              </button>
+            </div>
+
+            {/* Add Member Form */}
+            {showAddMember && (
+              <div style={{
+                backgroundColor: '#f5f0eb',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px'
+              }}>
+                <h3 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Add New Person</h3>
+                {[
+                  { label: 'Name', key: 'name', placeholder: 'e.g. Sarah' },
+                  { label: 'Relationship', key: 'relationship', placeholder: 'e.g. wife, son, daughter' },
+                ].map((field) => (
+                  <div key={field.key} style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>{field.label}</label>
+                    <input
+                      value={newMember[field.key]}
+                      onChange={(e) => setNewMember({ ...newMember, [field.key]: e.target.value })}
+                      placeholder={field.placeholder}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        border: '1px solid #ddd',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                ))}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Gender</label>
+                    <select
+                      value={newMember.gender}
+                      onChange={(e) => setNewMember({ ...newMember, gender: e.target.value })}
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
+                    >
+                      <option value="">Select</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Age (optional)</label>
+                    <input
+                      type="number"
+                      value={newMember.age}
+                      onChange={(e) => setNewMember({ ...newMember, age: e.target.value })}
+                      placeholder="e.g. 8"
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={addFamilyMember} style={{
+                    flex: 1, padding: '10px', backgroundColor: '#1a1a1a',
+                    color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer'
+                  }}>Add Person</button>
+                  <button onClick={() => setShowAddMember(false)} style={{
+                    flex: 1, padding: '10px', backgroundColor: 'transparent',
+                    color: '#888', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer'
+                  }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleNext}
+              disabled={!selectedMember}
+              style={{
+                width: '100%', padding: '16px',
+                backgroundColor: !selectedMember ? '#ccc' : '#1a1a1a',
+                color: 'white', border: 'none', borderRadius: '12px',
+                fontSize: '16px', fontWeight: 'bold',
+                cursor: !selectedMember ? 'not-allowed' : 'pointer'
+              }}
+            >Next →</button>
+          </div>
+        )}
+
+        {/* Step 2 — What are you looking for? */}
+        {step === 2 && (
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
+              What are you looking for today?
+            </h2>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
+              Tell us about this order
+            </p>
+
+            {/* Occasion */}
+            <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Occasion</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+              {['Work & Office', 'Wedding & Events', 'Casual Everyday', 'Eid & Religious',
+                'Formal Dinner', 'Special Celebration', 'Family Gathering', 'Date Night',
+                'Beach & Holiday', 'Gift for Someone', 'Other'].map((item) => (
+                <button key={item} onClick={() => handleOrderSelect('occasion', item, true)}
+                  style={{
+                    padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer',
+                    border: orderDetails.occasion.includes(item) ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: orderDetails.occasion.includes(item) ? '#f5f0eb' : 'white'
+                  }}>{item}</button>
+              ))}
+            </div>
+
+            {/* Garment Type */}
+            <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>What do you need?</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+              {['Full Outfit', 'Shirt / Top', 'Trousers / Pants', 'Suit / Blazer',
+                'Thobe / Kandura', 'Abaya / Modest Wear', 'Dress / Skirt', 'Accessories'].map((item) => (
+                <button key={item} onClick={() => handleOrderSelect('garment_type', item, true)}
+                  style={{
+                    padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer',
+                    border: orderDetails.garment_type.includes(item) ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: orderDetails.garment_type.includes(item) ? '#f5f0eb' : 'white'
+                  }}>{item}</button>
+              ))}
+            </div>
+
+            {/* Modesty */}
+            <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Modesty preference</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+              {[
+                { label: 'Fully Covered', desc: 'Full sleeves, high neck' },
+                { label: 'Modest & Elegant', desc: 'Covered but fitted' },
+                { label: 'Moderate', desc: 'Some skin, tasteful' },
+                { label: 'Fashion Forward', desc: 'Trendy and expressive' }
+              ].map((item) => (
+                <button key={item.label} onClick={() => handleOrderSelect('modesty', item.label)}
+                  style={{
+                    padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer',
+                    textAlign: 'left',
+                    border: orderDetails.modesty === item.label ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: orderDetails.modesty === item.label ? '#f5f0eb' : 'white'
+                  }}>
+                  <div style={{ fontWeight: 'bold' }}>{item.label}</div>
+                  <div style={{ fontSize: '11px', color: '#888' }}>{item.desc}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Budget */}
+            <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Budget per item</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '32px' }}>
+              {[
+                { label: 'Budget', desc: 'Under AED 200' },
+                { label: 'Mid Range', desc: 'AED 200 – 500' },
+                { label: 'Premium', desc: 'AED 500 – 1,000' },
+                { label: 'Luxury', desc: 'AED 1,000+' }
+              ].map((item) => (
+                <button key={item.label} onClick={() => handleOrderSelect('budget_range', item.label)}
+                  style={{
+                    padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer',
+                    textAlign: 'left',
+                    border: orderDetails.budget_range === item.label ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                    backgroundColor: orderDetails.budget_range === item.label ? '#f5f0eb' : 'white'
+                  }}>
+                  <div style={{ fontWeight: 'bold' }}>{item.label}</div>
+                  <div style={{ fontSize: '11px', color: '#888' }}>{item.desc}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={handleBack} style={{
+                flex: 1, padding: '16px', backgroundColor: 'transparent',
+                color: '#888', border: '1px solid #ddd', borderRadius: '12px',
+                fontSize: '16px', cursor: 'pointer'
+              }}>← Back</button>
+              <button
+                onClick={handleNext}
+                disabled={orderDetails.occasion.length === 0 || orderDetails.garment_type.length === 0 || !orderDetails.modesty || !orderDetails.budget_range}
+                style={{
+                  flex: 2, padding: '16px',
+                  backgroundColor: (orderDetails.occasion.length === 0 || orderDetails.garment_type.length === 0 || !orderDetails.modesty || !orderDetails.budget_range) ? '#ccc' : '#1a1a1a',
+                  color: 'white', border: 'none', borderRadius: '12px',
+                  fontSize: '16px', fontWeight: 'bold', cursor: 'pointer'
+                }}
+              >See Recommendations →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 — Measurements */}
+        {step === 3 && (
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
+              Measurements
+            </h2>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
+              {selectedMember === 'myself'
+                ? 'Use your saved measurements or update them'
+                : `Use ${familyMembers.find(m => m.id === selectedMember)?.name || 'their'}'s measurements or update them`}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
+              {selectedMember === 'myself' ? (
+                <>
+                  <button
+                    onClick={() => window.location.href = '/recommendations'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>✅</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Use my saved measurements</div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Quick and easy — we already have them!</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => window.location.href = '/measurements'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>⚖️</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>I lost or gained weight</div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Rescan for the most accurate fit</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => window.location.href = '/measurements'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>🔄</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>I just want to update</div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Rescan to refresh your measurements</div>
+                    </div>
+                  </button>
+                </>
+              ) : familyMembers.find(m => m.id === selectedMember) ? (
+                <>
+                  <button
+                    onClick={() => window.location.href = '/recommendations'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>✅</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                        Use {familyMembers.find(m => m.id === selectedMember)?.name}'s saved measurements
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Quick and easy — we already have them!</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => window.location.href = '/measurements'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>⚖️</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                        {familyMembers.find(m => m.id === selectedMember)?.name} lost or gained weight
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Rescan for the most accurate fit</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => window.location.href = '/measurements'}
+                    style={{
+                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: '16px'
+                    }}>
+                    <span style={{ fontSize: '28px' }}>🔄</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                        Update {familyMembers.find(m => m.id === selectedMember)?.name}'s measurements
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#888' }}>Rescan to refresh their measurements</div>
+                    </div>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => window.location.href = '/measurements'}
+                  style={{
+                    padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                    backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                    display: 'flex', alignItems: 'center', gap: '16px'
+                  }}>
+                  <span style={{ fontSize: '28px' }}>📸</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Scan this person now</div>
+                    <div style={{ fontSize: '13px', color: '#888' }}>No saved measurements yet — let's get them!</div>
+                  </div>
+                </button>
+              )}
+            </div>
+
+            <button onClick={handleBack} style={{
+              width: '100%', padding: '16px', backgroundColor: 'transparent',
+              color: '#888', border: '1px solid #ddd', borderRadius: '12px',
+              fontSize: '16px', cursor: 'pointer'
+            }}>← Back</button>
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}

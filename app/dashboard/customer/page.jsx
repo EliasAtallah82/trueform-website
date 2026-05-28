@@ -23,7 +23,6 @@ export default function CustomerDashboard() {
 
   return (
     <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
-      {/* Top Nav */}
       <nav style={{
         backgroundColor: '#1a1a1a',
         padding: '16px 40px',
@@ -38,23 +37,17 @@ export default function CustomerDashboard() {
           <span style={{ color: '#ccc', fontSize: '14px' }}>
             👤 {user.user_metadata.full_name}
           </span>
-          <button
-            onClick={handleLogout}
-            style={{
-              backgroundColor: 'transparent',
-              color: 'white',
-              border: '1px solid white',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            Log out
-          </button>
+          <button onClick={handleLogout} style={{
+            backgroundColor: 'transparent',
+            color: 'white',
+            border: '1px solid white',
+            padding: '8px 16px',
+            borderRadius: '6px',
+            cursor: 'pointer'
+          }}>Log out</button>
         </div>
       </nav>
 
-      {/* Dashboard Content */}
       <div style={{ padding: '40px' }}>
         <h2 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>
           Welcome back, {user.user_metadata.full_name}! 👋
@@ -63,55 +56,34 @@ export default function CustomerDashboard() {
           What would you like to do today?
         </p>
 
-        {/* Cards */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: '20px'
         }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '30px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📏</div>
-            <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>My Measurements</h3>
-            <p style={{ color: '#555', fontSize: '14px' }}>Scan or update your body measurements</p>
-          </div>
-
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '30px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>✨</div>
-            <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Style Advisor</h3>
-            <p style={{ color: '#555', fontSize: '14px' }}>Get AI outfit recommendations</p>
-          </div>
-
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '30px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👔</div>
-            <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Place Order</h3>
-            <p style={{ color: '#555', fontSize: '14px' }}>Order your custom outfit</p>
-          </div>
-
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '30px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🚚</div>
-            <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Track Order</h3>
-            <p style={{ color: '#555', fontSize: '14px' }}>Get live updates from TrueForm</p>
-          </div>
+          {[
+            { icon: '📏', title: 'My Measurements', desc: 'Scan or update your body measurements', href: '/measurements' },
+            { icon: '✨', title: 'Style Advisor', desc: 'Get AI outfit recommendations', href: '/quiz' },
+            { icon: '👔', title: 'Place Order', desc: 'Order your custom outfit', href: '/order' },
+            { icon: '🚚', title: 'Track Order', desc: 'Get live updates from TrueForm', href: '/track' },
+            { icon: '❤️', title: 'Saved Outfits', desc: 'Your wishlist and history', href: '/saved' },
+            { icon: '💳', title: 'Payments', desc: 'History and invoices', href: '/payments' },
+          ].map((card) => (
+            <a key={card.title} href={card.href} style={{ textDecoration: 'none' }}>
+              <div style={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                padding: '30px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'transform 0.2s'
+              }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>{card.icon}</div>
+                <h3 style={{ fontWeight: 'bold', marginBottom: '8px', color: '#1a1a1a' }}>{card.title}</h3>
+                <p style={{ color: '#555', fontSize: '14px' }}>{card.desc}</p>
+              </div>
+            </a>
+          ))}
         </div>
       </div>
     </main>
