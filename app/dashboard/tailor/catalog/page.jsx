@@ -7,11 +7,13 @@ export default function TailorCatalog() {
   const [items, setItems] = useState([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const [newItem, setNewItem] = useState({
     name: '', description: '', category: '', gender: '',
     occasion: '', modesty_level: '', fabrics: '', colors: '',
-    price: '', turnaround_days: ''
+    price: '', turnaround_days: '',
+    photo_main: '', photo_back: '', photo_detail: '', photo_model: ''
   })
 
   useEffect(() => {
@@ -34,13 +36,13 @@ export default function TailorCatalog() {
   const generateAIPrompt = (item) => {
     const parts = [
       'Professional fashion photography',
-      item.name,
-      item.category,
+      item.name && item.name,
+      item.category && item.category,
       item.gender && `for ${item.gender}`,
       item.colors && `in ${item.colors}`,
       item.fabrics && `made of ${item.fabrics}`,
       item.modesty_level && `${item.modesty_level} style`,
-      item.description,
+      item.description && item.description,
       'front view',
       'white background',
       'studio lighting',
@@ -56,6 +58,51 @@ export default function TailorCatalog() {
     alert('✅ AI prompt copied! Paste it into Midjourney or DALL-E to generate photos')
   }
 
+  const generatePhotos = async () => {
+    if (!newItem.name && !newItem.category) {
+      alert('Please fill in at least the item name and category first!')
+      return
+    }
+    setGenerating(true)
+    const prompt = generateAIPrompt(newItem)
+
+    try {
+      const photoTypes = [
+        { key: 'photo_main', angle: 'front view, white background' },
+        { key: 'photo_back', angle: 'back view, white background' },
+        { key: 'photo_detail', angle: 'close up detail shot, white background' },
+        { key: 'photo_model', angle: 'worn on mannequin, white background' }
+      ]
+
+      for (const photo of photoTypes) {
+        const fullPrompt = prompt.replace('front view', photo.angle)
+        const res = await fetch('/api/generate-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: fullPrompt })
+        })
+        const data = await res.json()
+        if (data.url) {
+          const imageRes = await fetch(data.url)
+          const blob = await imageRes.blob()
+          const file = new File([blob], `${photo.key}.png`, { type: 'image/png' })
+          const fileName = `${Date.now()}-${photo.key}.png`
+          const { error } = await supabase.storage
+            .from('catalog-photos').upload(fileName, file)
+          if (!error) {
+            const { data: urlData } = supabase.storage
+              .from('catalog-photos').getPublicUrl(fileName)
+            setNewItem(prev => ({ ...prev, [photo.key]: urlData.publicUrl }))
+          }
+        }
+      }
+      alert('✅ All 4 photos generated successfully!')
+    } catch (error) {
+      alert('Error generating photos: ' + error.message)
+    }
+    setGenerating(false)
+  }
+
   const calcPricing = (price) => {
     const selling = parseFloat(price) || 0
     const vat = selling - selling / 1.05
@@ -63,10 +110,8 @@ export default function TailorCatalog() {
     const trueformFee = net * 0.15
     const tailorCut = net * 0.85
     return {
-      selling: selling.toFixed(2),
-      vat: vat.toFixed(2),
-      net: net.toFixed(2),
-      trueformFee: trueformFee.toFixed(2),
+      selling: selling.toFixed(2), vat: vat.toFixed(2),
+      net: net.toFixed(2), trueformFee: trueformFee.toFixed(2),
       tailorCut: tailorCut.toFixed(2)
     }
   }
@@ -85,7 +130,8 @@ export default function TailorCatalog() {
       turnaround_days: parseInt(newItem.turnaround_days) || 7,
       status: 'pending',
       is_active: false,
-      ai_prompt: aiPrompt
+      ai_prompt: aiPrompt,
+      created_by: 'tailor'
     }).select()
 
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
@@ -95,7 +141,8 @@ export default function TailorCatalog() {
       setNewItem({
         name: '', description: '', category: '', gender: '',
         occasion: '', modesty_level: '', fabrics: '', colors: '',
-        price: '', turnaround_days: ''
+        price: '', turnaround_days: '',
+        photo_main: '', photo_back: '', photo_detail: '', photo_model: ''
       })
       alert('✅ Item submitted for TrueForm approval!')
     }
@@ -144,6 +191,35 @@ export default function TailorCatalog() {
       </span>
     )
   }
+
+  const PhotoUpload = ({ label, photoType, isMain }) => (
+    <div style={{
+      border: isMain ? '2px solid #1a1a1a' : '1px dashed #ddd',
+      borderRadius: '12px', padding: '16px', textAlign: 'center',
+      backgroundColor: isMain ? '#f5f0eb' : 'white'
+    }}>
+      <div style={{ fontSize: '12px', fontWeight: isMain ? 'bold' : 'normal', marginBottom: '8px', color: isMain ? '#1a1a1a' : '#888' }}>
+        {label}
+      </div>
+      {newItem[photoType] ? (
+        <div>
+          <img src={newItem[photoType]} alt={label}
+            style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
+          <button onClick={() => setNewItem(prev => ({ ...prev, [photoType]: '' }))}
+            style={{ fontSize: '11px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>
+            Remove
+          </button>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
+          <div style={{ fontSize: '11px', color: '#aaa' }}>
+            {generating ? '🔄 Generating...' : 'Use AI or upload'}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
@@ -201,7 +277,7 @@ export default function TailorCatalog() {
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px', marginBottom: '24px' }}>
             <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>Add New Item</h3>
             <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>
-              Fill in the details — we'll generate an AI photo prompt for you!
+              Fill in the details then generate photos with AI!
             </p>
 
             {/* Name */}
@@ -296,12 +372,8 @@ export default function TailorCatalog() {
               <input type="number" value={newItem.price}
                 onChange={(e) => setNewItem(prev => ({ ...prev, price: e.target.value }))}
                 placeholder="e.g. 250" style={{ ...inputStyle, maxWidth: '200px' }} />
-
               {pricing && (
-                <div style={{
-                  marginTop: '12px', padding: '16px', backgroundColor: '#f5f0eb',
-                  borderRadius: '10px', maxWidth: '320px'
-                }}>
+                <div style={{ marginTop: '12px', padding: '16px', backgroundColor: '#f5f0eb', borderRadius: '10px', maxWidth: '320px' }}>
                   <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '10px' }}>💰 Your Earnings Breakdown</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
                     <span style={{ color: '#555' }}>Selling Price (incl. VAT):</span>
@@ -335,27 +407,51 @@ export default function TailorCatalog() {
                 placeholder="e.g. 7" style={{ ...inputStyle, maxWidth: '200px' }} />
             </div>
 
-            {/* AI Prompt Preview */}
-            {(newItem.name || newItem.category) && (
-              <div style={{
-                marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a',
-                borderRadius: '12px'
-              }}>
-                <div style={{ fontSize: '13px', color: '#aaa', marginBottom: '8px' }}>
-                  🤖 Auto-generated AI photo prompt:
+            {/* AI Photo Generation */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
+                Photos
+              </label>
+              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
+                Generate 4 photos automatically with AI or upload your own
+              </p>
+
+              {/* AI Prompt */}
+              {(newItem.name || newItem.category) && (
+                <div style={{ padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '12px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', color: '#aaa', marginBottom: '8px' }}>
+                    🤖 Auto-generated AI prompt:
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#fff', marginBottom: '12px', lineHeight: '1.6' }}>
+                    {generateAIPrompt(newItem)}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={generatePhotos} disabled={generating} style={{
+                      padding: '8px 16px', backgroundColor: '#7c3aed', color: 'white',
+                      border: 'none', borderRadius: '8px', cursor: generating ? 'not-allowed' : 'pointer',
+                      fontSize: '13px', fontWeight: 'bold'
+                    }}>
+                      {generating ? '🔄 Generating all 4 photos...' : '🤖 Generate Photos with AI'}
+                    </button>
+                    <button onClick={() => copyPrompt(newItem)} style={{
+                      padding: '8px 16px', backgroundColor: 'white', color: '#1a1a1a',
+                      border: 'none', borderRadius: '8px', cursor: 'pointer',
+                      fontSize: '13px', fontWeight: 'bold'
+                    }}>
+                      📋 Copy Prompt
+                    </button>
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: '#fff', marginBottom: '12px', lineHeight: '1.6' }}>
-                  {generateAIPrompt(newItem)}
-                </div>
-                <button onClick={() => copyPrompt(newItem)} style={{
-                  padding: '8px 16px', backgroundColor: 'white', color: '#1a1a1a',
-                  border: 'none', borderRadius: '8px', cursor: 'pointer',
-                  fontSize: '13px', fontWeight: 'bold'
-                }}>
-                  📋 Copy AI Prompt
-                </button>
+              )}
+
+              {/* Photo Preview Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                <PhotoUpload label="⭐ Front View (Main)" photoType="photo_main" isMain={true} />
+                <PhotoUpload label="Back View" photoType="photo_back" isMain={false} />
+                <PhotoUpload label="Detail Shot" photoType="photo_detail" isMain={false} />
+                <PhotoUpload label="On Model" photoType="photo_model" isMain={false} />
               </div>
-            )}
+            </div>
 
             <button onClick={handleSave} disabled={saving} style={{
               width: '100%', padding: '14px', backgroundColor: '#1a1a1a', color: 'white',
@@ -381,8 +477,7 @@ export default function TailorCatalog() {
             {filteredItems.map((item) => (
               <div key={item.id} style={{
                 backgroundColor: 'white', borderRadius: '16px', padding: '24px',
-                border: '1px solid #e0e0e0',
-                opacity: item.status === 'rejected' ? 0.8 : 1
+                border: '1px solid #e0e0e0'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
@@ -403,32 +498,20 @@ export default function TailorCatalog() {
                         You get: AED {(item.price / 1.05 * 0.85).toFixed(2)}
                       </span>
                     </div>
-
-                    {/* Rejection reason */}
                     {item.status === 'rejected' && item.rejection_reason && (
-                      <div style={{
-                        marginTop: '12px', padding: '12px', backgroundColor: '#fee2e2',
-                        borderRadius: '8px', fontSize: '13px', color: '#991b1b'
-                      }}>
+                      <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#fee2e2', borderRadius: '8px', fontSize: '13px', color: '#991b1b' }}>
                         ❌ Rejection reason: {item.rejection_reason}
                       </div>
                     )}
-
-                    {/* AI Prompt */}
-                    {item.status === 'pending' && (
-                      <div style={{ marginTop: '12px' }}>
-                        <button onClick={() => copyPrompt(item)} style={{
-                          padding: '6px 12px', backgroundColor: '#1a1a1a', color: 'white',
-                          border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px'
-                        }}>
-                          📋 Copy AI Photo Prompt
-                        </button>
+                    {item.photo_main && (
+                      <div style={{ display: 'flex', gap: '4px', marginTop: '12px' }}>
+                        {[item.photo_main, item.photo_back, item.photo_detail, item.photo_model].filter(Boolean).map((photo, i) => (
+                          <img key={i} src={photo} alt="" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px' }} />
+                        ))}
                       </div>
                     )}
                   </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: '8px', marginLeft: '16px' }}>
+                  <div style={{ marginLeft: '16px' }}>
                     {item.status !== 'approved' && (
                       <button onClick={() => deleteItem(item.id, item.status)} style={{
                         padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626',

@@ -2,6 +2,20 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
+const GULF_COUNTRIES = ['UAE', 'Saudi Arabia', 'Kuwait', 'Qatar', 'Bahrain', 'Oman']
+const ARAB_COUNTRIES = ['Egypt', 'Jordan', 'Lebanon', 'Syria', 'Iraq', 'Palestine', 'Libya', 'Tunisia', 'Algeria', 'Morocco', 'Yemen', 'Sudan']
+
+const ALL_COUNTRIES = [
+  'UAE', 'Saudi Arabia', 'Kuwait', 'Qatar', 'Bahrain', 'Oman',
+  'Egypt', 'Jordan', 'Lebanon', 'Syria', 'Iraq', 'Palestine',
+  'Libya', 'Tunisia', 'Algeria', 'Morocco', 'Yemen', 'Sudan',
+  'India', 'Pakistan', 'Bangladesh', 'Philippines', 'Indonesia',
+  'UK', 'USA', 'Canada', 'Australia', 'France', 'Germany',
+  'Italy', 'Spain', 'China', 'Japan', 'Korea', 'Turkey',
+  'Iran', 'Afghanistan', 'Sri Lanka', 'Nepal', 'Ethiopia',
+  'Nigeria', 'South Africa', 'Kenya', 'Other'
+].sort()
+
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -13,8 +27,29 @@ export default function Profile() {
     name: '', relationship: '', gender: '', date_of_birth: ''
   })
   const [profile, setProfile] = useState({
-    full_name: '', phone: '', gender: '', date_of_birth: ''
+    full_name: '', phone: '', gender: '', date_of_birth: '', nationality: '',
+    fit_shirts: '', fit_trousers: '', fit_suits: '',
+    fit_thobes: '', fit_abayas: '', fit_dresses: ''
   })
+  const [dobDay, setDobDay] = useState('')
+  const [dobMonth, setDobMonth] = useState('')
+  const [dobYear, setDobYear] = useState('')
+
+  const getFitOptions = (gender, nationality) => {
+    const isGulf = GULF_COUNTRIES.includes(nationality)
+    const isArab = ARAB_COUNTRIES.includes(nationality)
+    const isMale = gender === 'Male'
+    const isFemale = gender === 'Female'
+    const options = []
+    options.push({ label: 'Shirts & Tops', key: 'fit_shirts', fits: ['Skinny', 'Slim', 'Regular', 'Relaxed', 'Loose'] })
+    options.push({ label: 'Trousers & Pants', key: 'fit_trousers', fits: ['Skinny', 'Slim', 'Regular', 'Relaxed', 'Loose'] })
+    if (!isFemale) options.push({ label: 'Suits & Blazers', key: 'fit_suits', fits: ['Slim', 'Regular', 'Relaxed'] })
+    if (isFemale) options.push({ label: 'Suits & Blazers', key: 'fit_suits', fits: ['Slim', 'Regular', 'Relaxed'] })
+    if (isMale && isGulf) options.push({ label: 'Thobes & Kanduras', key: 'fit_thobes', fits: ['Slim', 'Regular', 'Loose'] })
+    if (isFemale && (isGulf || isArab)) options.push({ label: 'Abayas & Modest Wear', key: 'fit_abayas', fits: ['Fitted', 'Regular', 'Loose'] })
+    if (isFemale) options.push({ label: 'Dresses & Skirts', key: 'fit_dresses', fits: ['Fitted', 'Regular', 'Loose'] })
+    return options
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -22,7 +57,32 @@ export default function Profile() {
       if (!data.user) window.location.href = '/auth/login'
       else {
         setUser(data.user)
-        setProfile(prev => ({ ...prev, full_name: data.user.user_metadata.full_name || '' }))
+        const { data: existingProfile } = await supabase
+          .from('profiles').select('*').eq('id', data.user.id).single()
+        if (existingProfile) {
+          const formattedProfile = {
+            full_name: existingProfile.full_name || '',
+            phone: existingProfile.phone || '',
+            gender: existingProfile.gender || '',
+            date_of_birth: existingProfile.date_of_birth ? existingProfile.date_of_birth.slice(0, 10) : '',
+            nationality: existingProfile.nationality || '',
+            fit_shirts: existingProfile.fit_shirts || '',
+            fit_trousers: existingProfile.fit_trousers || '',
+            fit_suits: existingProfile.fit_suits || '',
+            fit_thobes: existingProfile.fit_thobes || '',
+            fit_abayas: existingProfile.fit_abayas || '',
+            fit_dresses: existingProfile.fit_dresses || '',
+          }
+          setProfile(formattedProfile)
+          if (formattedProfile.date_of_birth) {
+            const parts = formattedProfile.date_of_birth.split('-')
+            setDobYear(parts[0] || '')
+            setDobMonth(parts[1] || '')
+            setDobDay(parts[2] || '')
+          }
+        } else {
+          setProfile(prev => ({ ...prev, full_name: data.user.user_metadata.full_name || '' }))
+        }
         const { data: members } = await supabase
           .from('family_members').select('*').eq('owner_id', data.user.id)
         setFamilyMembers(members || [])
@@ -31,12 +91,21 @@ export default function Profile() {
     init()
   }, [])
 
+  useEffect(() => {
+    if (dobDay && dobMonth && dobYear) {
+      setProfile(prev => ({ ...prev, date_of_birth: `${dobYear}-${dobMonth}-${dobDay}` }))
+    } else {
+      setProfile(prev => ({ ...prev, date_of_birth: '' }))
+    }
+  }, [dobDay, dobMonth, dobYear])
+
   const validate = () => {
     const newErrors = {}
     if (!profile.full_name) newErrors.full_name = 'Required'
     if (!profile.phone) newErrors.phone = 'Required'
     if (!profile.gender) newErrors.gender = 'Required'
-    if (!profile.date_of_birth) newErrors.date_of_birth = 'Required'
+    if (!dobDay || !dobMonth || !dobYear) newErrors.date_of_birth = 'Required'
+    if (!profile.nationality) newErrors.nationality = 'Required'
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -45,8 +114,8 @@ export default function Profile() {
     if (!validate()) return
     setLoading(true)
     await supabase.from('profiles').upsert({
-      id: user.id, ...profile, email: user.email
-    })
+  id: user.id, ...profile, email: user.email, role: 'customer'
+})
     setSaved(true)
     setLoading(false)
     setTimeout(() => setSaved(false), 3000)
@@ -90,6 +159,8 @@ export default function Profile() {
 
   if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
 
+  const fitOptions = getFitOptions(profile.gender, profile.nationality)
+
   const selectStyle = (hasError) => ({
     width: '100%', padding: '10px', borderRadius: '8px', fontSize: '14px',
     backgroundColor: 'white', cursor: 'pointer',
@@ -122,11 +193,9 @@ export default function Profile() {
           <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>👤 My Profile</h2>
           <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>Your personal details</p>
 
-          {/* Email — read only */}
+          {/* Email */}
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontWeight: '500', marginBottom: '6px', fontSize: '14px' }}>
-              Email Address
-            </label>
+            <label style={{ display: 'block', fontWeight: '500', marginBottom: '6px', fontSize: '14px' }}>Email Address</label>
             <div style={{
               width: '100%', padding: '12px', borderRadius: '8px', fontSize: '15px',
               border: '1px solid #e0e0e0', backgroundColor: '#f9f9f9',
@@ -169,15 +238,38 @@ export default function Profile() {
             <label style={{ display: 'block', fontWeight: '500', marginBottom: '6px', fontSize: '14px' }}>
               Date of Birth {requiredStar}
             </label>
-            <input type="date" value={profile.date_of_birth}
-              onChange={(e) => setProfile({ ...profile, date_of_birth: e.target.value })}
-              style={{ ...inputStyle(errors.date_of_birth), padding: '12px', fontSize: '15px' }}
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+              <select value={dobDay} onChange={(e) => setDobDay(e.target.value)}
+                style={selectStyle(errors.date_of_birth)}>
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <select value={dobMonth} onChange={(e) => setDobMonth(e.target.value)}
+                style={selectStyle(errors.date_of_birth)}>
+                <option value="">Month</option>
+                {[
+                  ['01','January'],['02','February'],['03','March'],['04','April'],
+                  ['05','May'],['06','June'],['07','July'],['08','August'],
+                  ['09','September'],['10','October'],['11','November'],['12','December']
+                ].map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+              <select value={dobYear} onChange={(e) => setDobYear(e.target.value)}
+                style={selectStyle(errors.date_of_birth)}>
+                <option value="">Year</option>
+                {Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i)).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
             {errors.date_of_birth && <p style={errorStyle}>Date of birth is required</p>}
           </div>
 
           {/* Gender */}
-          <div style={{ marginBottom: '24px' }}>
+          <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontWeight: '500', marginBottom: '6px', fontSize: '14px' }}>
               Gender {requiredStar}
             </label>
@@ -193,6 +285,65 @@ export default function Profile() {
             </div>
             {errors.gender && <p style={errorStyle}>Please select your gender</p>}
           </div>
+
+          {/* Nationality */}
+          <div style={{ marginBottom: '32px' }}>
+            <label style={{ display: 'block', fontWeight: '500', marginBottom: '6px', fontSize: '14px' }}>
+              Nationality {requiredStar}
+            </label>
+            <select value={profile.nationality}
+              onChange={(e) => setProfile({ ...profile, nationality: e.target.value })}
+              style={{ ...selectStyle(errors.nationality), padding: '12px', fontSize: '15px' }}>
+              <option value="">Select your nationality</option>
+              {ALL_COUNTRIES.map(country => (
+                <option key={country} value={country}>{country}</option>
+              ))}
+            </select>
+            {errors.nationality && <p style={errorStyle}>Nationality is required</p>}
+          </div>
+
+          {/* Fit Preferences */}
+          {profile.gender && profile.nationality && (
+            <div style={{ marginBottom: '32px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>👔 Fit Preferences</h3>
+              <p style={{ color: '#888', fontSize: '13px', marginBottom: '20px' }}>
+                Set your default fit per garment — can be changed per order
+              </p>
+              {fitOptions.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {fitOptions.map(({ label, key, fits }) => (
+                    <div key={key}>
+                      <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>
+                        {label}
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {fits.map((fit) => (
+                          <button key={fit} onClick={() => setProfile({ ...profile, [key]: fit })}
+                            style={{
+                              padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                              border: profile[key] === fit ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                              backgroundColor: profile[key] === fit ? '#1a1a1a' : 'white',
+                              color: profile[key] === fit ? 'white' : '#555'
+                            }}>{fit}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding: '16px', backgroundColor: '#f9f9f9', borderRadius: '8px', color: '#888', fontSize: '14px' }}>
+                  Select your gender and nationality above to see fit options
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Show message if gender/nationality not set yet */}
+          {(!profile.gender || !profile.nationality) && (
+            <div style={{ marginBottom: '32px', padding: '16px', backgroundColor: '#fef3c7', borderRadius: '12px', fontSize: '14px', color: '#92400e' }}>
+              💡 Select your gender and nationality above to unlock personalized fit preferences!
+            </div>
+          )}
 
           {/* Measurements */}
           <div style={{
@@ -265,18 +416,16 @@ export default function Profile() {
 
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                  Name {requiredStar}
+                  Name <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <input value={newMember.name}
                   onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                  placeholder="e.g. Sarah"
-                  style={inputStyle(false)}
-                />
+                  placeholder="e.g. Sarah" style={inputStyle(false)} />
               </div>
 
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                  Relationship {requiredStar}
+                  Relationship <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <select value={newMember.relationship}
                   onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value })}
@@ -297,7 +446,7 @@ export default function Profile() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                    Gender {requiredStar}
+                    Gender <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <select value={newMember.gender}
                     onChange={(e) => setNewMember({ ...newMember, gender: e.target.value })}
@@ -308,13 +457,10 @@ export default function Profile() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                    Date of Birth
-                  </label>
+                  <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Date of Birth</label>
                   <input type="date" value={newMember.date_of_birth}
                     onChange={(e) => setNewMember({ ...newMember, date_of_birth: e.target.value })}
-                    style={inputStyle(false)}
-                  />
+                    style={inputStyle(false)} />
                 </div>
               </div>
 

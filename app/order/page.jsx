@@ -11,6 +11,9 @@ export default function NewOrder() {
   const [selectedAddress, setSelectedAddress] = useState(null)
   const [showAddMember, setShowAddMember] = useState(false)
   const [showAddAddress, setShowAddAddress] = useState(false)
+  const [fitPreferences, setFitPreferences] = useState({})
+  const [selectedFit, setSelectedFit] = useState('')
+  const [changingFit, setChangingFit] = useState(false)
   const [newMember, setNewMember] = useState({ name: '', relationship: '', gender: '', age: '' })
   const [orderDetails, setOrderDetails] = useState({
     occasion: [], garment_type: [], modesty: '', budget_range: ''
@@ -21,6 +24,17 @@ export default function NewOrder() {
   })
 
   const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah']
+
+  const FIT_MAP = {
+    'Shirt / Top': 'fit_shirts',
+    'Trousers / Pants': 'fit_trousers',
+    'Suit / Blazer': 'fit_suits',
+    'Thobe / Kandura': 'fit_thobes',
+    'Abaya / Modest Wear': 'fit_abayas',
+    'Dress / Skirt': 'fit_dresses',
+    'Full Outfit': 'fit_shirts',
+    'Accessories': null
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -37,10 +51,29 @@ export default function NewOrder() {
         setAddresses(adds || [])
         const defaultAddr = adds?.find(a => a.is_default)
         if (defaultAddr) setSelectedAddress(defaultAddr.id)
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('fit_shirts, fit_trousers, fit_suits, fit_thobes, fit_abayas, fit_dresses')
+          .eq('id', data.user.id).single()
+        if (profileData) setFitPreferences(profileData)
       }
     }
     init()
   }, [])
+
+  // Auto-set fit when garment type is selected
+  useEffect(() => {
+    if (orderDetails.garment_type.length > 0) {
+      const firstGarment = orderDetails.garment_type[0]
+      const fitKey = FIT_MAP[firstGarment]
+      if (fitKey && fitPreferences[fitKey]) {
+        setSelectedFit(fitPreferences[fitKey])
+        setChangingFit(false)
+      } else {
+        setSelectedFit('')
+      }
+    }
+  }, [orderDetails.garment_type, fitPreferences])
 
   const addFamilyMember = async () => {
     const { data } = await supabase.from('family_members').insert({
@@ -94,10 +127,31 @@ export default function NewOrder() {
     return '📍'
   }
 
+  const getFitOptions = () => {
+    if (orderDetails.garment_type.includes('Abaya / Modest Wear') ||
+        orderDetails.garment_type.includes('Dress / Skirt')) {
+      return ['Fitted', 'Regular', 'Loose']
+    }
+    if (orderDetails.garment_type.includes('Suit / Blazer') ||
+        orderDetails.garment_type.includes('Thobe / Kandura')) {
+      return ['Slim', 'Regular', 'Loose']
+    }
+    return ['Skinny', 'Slim', 'Regular', 'Relaxed', 'Loose']
+  }
+
+  const getSavedFit = () => {
+    if (orderDetails.garment_type.length === 0) return null
+    const firstGarment = orderDetails.garment_type[0]
+    const fitKey = FIT_MAP[firstGarment]
+    return fitKey ? fitPreferences[fitKey] : null
+  }
+
   if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }
   const selectStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }
+
+  const savedFit = getSavedFit()
 
   return (
     <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
@@ -200,7 +254,7 @@ export default function NewOrder() {
         {/* Step 2 */}
         {step === 2 && (
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px' }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>What are you looking for today?</h2>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>What are you looking for?</h2>
             <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>Tell us about this order</p>
 
             <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Occasion</h3>
@@ -227,7 +281,12 @@ export default function NewOrder() {
 
             <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Modesty preference</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
-              {[{ label: 'Fully Covered', desc: 'Full sleeves, high neck' }, { label: 'Modest & Elegant', desc: 'Covered but fitted' }, { label: 'Moderate', desc: 'Some skin, tasteful' }, { label: 'Fashion Forward', desc: 'Trendy and expressive' }].map((item) => (
+              {[
+                { label: 'Fully Covered', desc: 'Full sleeves, high neck' },
+                { label: 'Modest & Elegant', desc: 'Covered but fitted' },
+                { label: 'Moderate', desc: 'Some skin, tasteful' },
+                { label: 'Fashion Forward', desc: 'Trendy and expressive' }
+              ].map((item) => (
                 <button key={item.label} onClick={() => handleOrderSelect('modesty', item.label)} style={{
                   padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer', textAlign: 'left',
                   border: orderDetails.modesty === item.label ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
@@ -240,8 +299,13 @@ export default function NewOrder() {
             </div>
 
             <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Budget per item</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '32px' }}>
-              {[{ label: 'Budget', desc: 'Under AED 200' }, { label: 'Mid Range', desc: 'AED 200 – 500' }, { label: 'Premium', desc: 'AED 500 – 1,000' }, { label: 'Luxury', desc: 'AED 1,000+' }].map((item) => (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+              {[
+                { label: 'Budget', desc: 'Under AED 200' },
+                { label: 'Mid Range', desc: 'AED 200 – 500' },
+                { label: 'Premium', desc: 'AED 500 – 1,000' },
+                { label: 'Luxury', desc: 'AED 1,000+' }
+              ].map((item) => (
                 <button key={item.label} onClick={() => handleOrderSelect('budget_range', item.label)} style={{
                   padding: '12px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer', textAlign: 'left',
                   border: orderDetails.budget_range === item.label ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
@@ -252,6 +316,68 @@ export default function NewOrder() {
                 </button>
               ))}
             </div>
+
+            {/* Fit Preference */}
+            {orderDetails.garment_type.length > 0 && orderDetails.garment_type[0] !== 'Accessories' && (
+              <div style={{ marginBottom: '32px' }}>
+                <h3 style={{ fontWeight: 'bold', marginBottom: '12px' }}>Fit Preference</h3>
+
+                {savedFit && !changingFit ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <button onClick={() => { setSelectedFit(savedFit); }}
+                      style={{
+                        padding: '20px', borderRadius: '12px', border: '2px solid #1a1a1a',
+                        backgroundColor: '#f5f0eb', cursor: 'pointer', textAlign: 'left',
+                        display: 'flex', alignItems: 'center', gap: '16px'
+                      }}>
+                      <span style={{ fontSize: '28px' }}>✅</span>
+                      <div>
+                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                          Use my saved fit — {savedFit}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#888' }}>
+                          From your profile preferences
+                        </div>
+                      </div>
+                    </button>
+                    <button onClick={() => setChangingFit(true)}
+                      style={{
+                        padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                        backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                        display: 'flex', alignItems: 'center', gap: '16px'
+                      }}>
+                      <span style={{ fontSize: '28px' }}>🔄</span>
+                      <div>
+                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                          Change fit for this order
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#888' }}>
+                          Override your default preference
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    {savedFit && (
+                      <button onClick={() => { setChangingFit(false); setSelectedFit(savedFit); }}
+                        style={{ fontSize: '13px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', marginBottom: '12px', textDecoration: 'underline' }}>
+                        ← Back to saved fit
+                      </button>
+                    )}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {getFitOptions().map((fit) => (
+                        <button key={fit} onClick={() => setSelectedFit(fit)} style={{
+                          padding: '10px 20px', borderRadius: '10px', fontSize: '13px', cursor: 'pointer',
+                          border: selectedFit === fit ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
+                          backgroundColor: selectedFit === fit ? '#f5f0eb' : 'white'
+                        }}>{fit}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={handleBack} style={{ flex: 1, padding: '16px', backgroundColor: 'transparent', color: '#888', border: '1px solid #ddd', borderRadius: '12px', fontSize: '16px', cursor: 'pointer' }}>← Back</button>
@@ -275,47 +401,23 @@ export default function NewOrder() {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
-              {selectedMember === 'myself' ? (
-                <>
-                  {[
-                    { icon: '✅', label: 'Use my saved measurements', desc: 'Quick and easy!', action: handleNext },
-                    { icon: '⚖️', label: 'I lost or gained weight', desc: 'Rescan for best fit', action: () => window.location.href = '/measurements' },
-                    { icon: '🔄', label: 'I just want to update', desc: 'Rescan to refresh', action: () => window.location.href = '/measurements' },
-                  ].map((option) => (
-                    <button key={option.label} onClick={option.action} style={{
-                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
-                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
-                      display: 'flex', alignItems: 'center', gap: '16px'
-                    }}>
-                      <span style={{ fontSize: '28px' }}>{option.icon}</span>
-                      <div>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{option.label}</div>
-                        <div style={{ fontSize: '13px', color: '#888' }}>{option.desc}</div>
-                      </div>
-                    </button>
-                  ))}
-                </>
-              ) : (
-                <>
-                  {[
-                    { icon: '✅', label: `Use ${familyMembers.find(m => m.id === selectedMember)?.name}'s saved measurements`, desc: 'Quick and easy!', action: handleNext },
-                    { icon: '⚖️', label: `${familyMembers.find(m => m.id === selectedMember)?.name} lost or gained weight`, desc: 'Rescan for best fit', action: () => window.location.href = '/measurements' },
-                    { icon: '🔄', label: `Update ${familyMembers.find(m => m.id === selectedMember)?.name}'s measurements`, desc: 'Rescan to refresh', action: () => window.location.href = '/measurements' },
-                  ].map((option) => (
-                    <button key={option.label} onClick={option.action} style={{
-                      padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
-                      backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
-                      display: 'flex', alignItems: 'center', gap: '16px'
-                    }}>
-                      <span style={{ fontSize: '28px' }}>{option.icon}</span>
-                      <div>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{option.label}</div>
-                        <div style={{ fontSize: '13px', color: '#888' }}>{option.desc}</div>
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
+              {[
+                { icon: '✅', label: selectedMember === 'myself' ? 'Use my saved measurements' : `Use ${familyMembers.find(m => m.id === selectedMember)?.name}'s saved measurements`, desc: 'Quick and easy!', action: handleNext },
+                { icon: '⚖️', label: selectedMember === 'myself' ? 'I lost or gained weight' : `${familyMembers.find(m => m.id === selectedMember)?.name} lost or gained weight`, desc: 'Rescan for best fit', action: () => window.location.href = '/measurements' },
+                { icon: '🔄', label: selectedMember === 'myself' ? 'I just want to update' : `Update ${familyMembers.find(m => m.id === selectedMember)?.name}'s measurements`, desc: 'Rescan to refresh', action: () => window.location.href = '/measurements' },
+              ].map((option) => (
+                <button key={option.label} onClick={option.action} style={{
+                  padding: '20px', borderRadius: '12px', border: '2px solid #e0e0e0',
+                  backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: '16px'
+                }}>
+                  <span style={{ fontSize: '28px' }}>{option.icon}</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{option.label}</div>
+                    <div style={{ fontSize: '13px', color: '#888' }}>{option.desc}</div>
+                  </div>
+                </button>
+              ))}
             </div>
 
             <button onClick={handleBack} style={{ width: '100%', padding: '16px', backgroundColor: 'transparent', color: '#888', border: '1px solid #ddd', borderRadius: '12px', fontSize: '16px', cursor: 'pointer' }}>← Back</button>
@@ -331,7 +433,7 @@ export default function NewOrder() {
             {addresses.length > 0 && (
               <div style={{ marginBottom: '20px' }}>
                 {addresses.map((address) => (
-                  <button key={address.id} onClick={() => { console.log('Selected:', address.id); setSelectedAddress(address.id); }} style={{
+                  <button key={address.id} onClick={() => setSelectedAddress(address.id)} style={{
                     width: '100%', padding: '16px', borderRadius: '12px', marginBottom: '12px',
                     cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px',
                     border: selectedAddress === address.id ? '2px solid #1a1a1a' : '2px solid #e0e0e0',

@@ -8,6 +8,7 @@ export default function AdminApprovals() {
   const [activeTab, setActiveTab] = useState('pending')
   const [rejectionReason, setRejectionReason] = useState({})
   const [loading, setLoading] = useState(false)
+  const [generatingPhotos, setGeneratingPhotos] = useState({})
 
   useEffect(() => {
     const init = async () => {
@@ -42,10 +43,7 @@ export default function AdminApprovals() {
 
   const handleReject = async (id) => {
     const reason = rejectionReason[id]
-    if (!reason) {
-      alert('Please provide a rejection reason!')
-      return
-    }
+    if (!reason) { alert('Please provide a rejection reason!'); return }
     setLoading(true)
     await supabase.from('catalog').update({
       status: 'rejected',
@@ -57,36 +55,99 @@ export default function AdminApprovals() {
     setLoading(false)
   }
 
+  const generatePhotosForItem = async (item) => {
+    setGeneratingPhotos(prev => ({ ...prev, [item.id]: 'generating' }))
+
+    const basePrompt = item.ai_prompt || [
+      'Professional fashion photography',
+      item.name, item.category,
+      item.gender && `for ${item.gender}`,
+      item.colors && `in ${item.colors}`,
+      item.fabrics && `made of ${item.fabrics}`,
+      item.modesty_level && `${item.modesty_level} style`,
+      item.description,
+      'white background', 'studio lighting',
+      'high quality commercial fashion photography', 'no model', 'flat lay or mannequin'
+    ].filter(Boolean).join(', ')
+
+    try {
+      const photoTypes = [
+        { key: 'photo_main', angle: 'front view, white background' },
+        { key: 'photo_back', angle: 'back view, white background' },
+        { key: 'photo_detail', angle: 'close up detail shot, white background' },
+        { key: 'photo_model', angle: 'worn on mannequin, white background' }
+      ]
+
+      const updates = {}
+
+      for (const photo of photoTypes) {
+        const fullPrompt = basePrompt.replace('front view', photo.angle)
+        const res = await fetch('/api/generate-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: fullPrompt })
+        })
+        const data = await res.json()
+        if (data.url) {
+          const imageRes = await fetch(data.url)
+          const blob = await imageRes.blob()
+          const file = new File([blob], `${photo.key}.png`, { type: 'image/png' })
+          const fileName = `${Date.now()}-${item.id}-${photo.key}.png`
+          const { error } = await supabase.storage
+            .from('catalog-photos').upload(fileName, file)
+          if (!error) {
+            const { data: urlData } = supabase.storage
+              .from('catalog-photos').getPublicUrl(fileName)
+            updates[photo.key] = urlData.publicUrl
+          }
+        }
+      }
+
+      // Save all 4 photos to DB
+      await supabase.from('catalog').update(updates).eq('id', item.id)
+      setItems(items.map(i => i.id === item.id ? { ...i, ...updates } : i))
+      setGeneratingPhotos(prev => ({ ...prev, [item.id]: 'done' }))
+      alert(`✅ AI photos generated for "${item.name}"!`)
+
+    } catch (error) {
+      alert('Error generating photos: ' + error.message)
+      setGeneratingPhotos(prev => ({ ...prev, [item.id]: null }))
+    }
+  }
+
+  const generateAllPhotos = async (approvedItems) => {
+    if (!confirm(`Generate AI photos for all ${approvedItems.length} approved items without photos? This may take a few minutes.`)) return
+    for (const item of approvedItems) {
+      await generatePhotosForItem(item)
+    }
+    alert('✅ All photos generated!')
+  }
+
   const uploadPhoto = async (file, itemId, photoType) => {
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${itemId}-${photoType}.${fileExt}`
-    const { error } = await supabase.storage
-      .from('catalog-photos')
-      .upload(fileName, file)
+    const { error } = await supabase.storage.from('catalog-photos').upload(fileName, file)
     if (error) { alert('Upload error: ' + error.message); return }
-    const { data: urlData } = supabase.storage
-      .from('catalog-photos')
-      .getPublicUrl(fileName)
-    await supabase.from('catalog').update({
-      [photoType]: urlData.publicUrl
-    }).eq('id', itemId)
+    const { data: urlData } = supabase.storage.from('catalog-photos').getPublicUrl(fileName)
+    await supabase.from('catalog').update({ [photoType]: urlData.publicUrl }).eq('id', itemId)
     setItems(items.map(item => item.id === itemId ? { ...item, [photoType]: urlData.publicUrl } : item))
   }
 
   if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
 
   const filteredItems = items.filter(item => item.status === activeTab)
+  const approvedWithoutPhotos = items.filter(i => i.status === 'approved' && !i.photo_main)
 
   const getStatusBadge = (status) => {
-    const styles = {
-      pending: { backgroundColor: '#fef3c7', color: '#92400e' },
-      approved: { backgroundColor: '#dcfce7', color: '#166534' },
-      rejected: { backgroundColor: '#fee2e2', color: '#991b1b' }
+    const map = {
+      pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending' },
+      approved: { bg: '#dcfce7', color: '#166534', label: '✅ Approved' },
+      rejected: { bg: '#fee2e2', color: '#991b1b', label: '❌ Rejected' }
     }
-    const labels = { pending: '⏳ Pending', approved: '✅ Approved', rejected: '❌ Rejected' }
+    const s = map[status] || map.pending
     return (
-      <span style={{ ...styles[status], fontSize: '11px', padding: '3px 10px', borderRadius: '20px', fontWeight: 'bold' }}>
-        {labels[status]}
+      <span style={{ backgroundColor: s.bg, color: s.color, fontSize: '11px', padding: '3px 10px', borderRadius: '20px', fontWeight: 'bold' }}>
+        {s.label}
       </span>
     )
   }
@@ -102,10 +163,34 @@ export default function AdminApprovals() {
       </nav>
 
       <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto' }}>
+
         <div style={{ marginBottom: '32px' }}>
           <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>📋 Catalog Approvals</h2>
-          <p style={{ color: '#888', fontSize: '14px' }}>Review and approve tailor submissions</p>
+          <p style={{ color: '#888', fontSize: '14px' }}>Review tailor submissions and generate AI photos</p>
         </div>
+
+        {/* Generate All Banner */}
+        {approvedWithoutPhotos.length > 0 && (
+          <div style={{
+            backgroundColor: '#1a1a1a', borderRadius: '12px', padding: '20px',
+            marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <div>
+              <div style={{ color: 'white', fontWeight: 'bold', marginBottom: '4px' }}>
+                🤖 {approvedWithoutPhotos.length} approved item(s) need AI photos
+              </div>
+              <div style={{ color: '#aaa', fontSize: '13px' }}>
+                Generate all at once or do them individually below
+              </div>
+            </div>
+            <button onClick={() => generateAllPhotos(approvedWithoutPhotos)} style={{
+              padding: '10px 20px', backgroundColor: '#7c3aed', color: 'white',
+              border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px'
+            }}>
+              🤖 Generate All Photos
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
@@ -125,10 +210,7 @@ export default function AdminApprovals() {
 
         {/* Items */}
         {filteredItems.length === 0 ? (
-          <div style={{
-            backgroundColor: 'white', borderRadius: '16px', padding: '60px',
-            textAlign: 'center', color: '#888'
-          }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#888' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
             <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>No {activeTab} items</h3>
             <p>All caught up!</p>
@@ -136,10 +218,8 @@ export default function AdminApprovals() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {filteredItems.map((item) => (
-              <div key={item.id} style={{
-                backgroundColor: 'white', borderRadius: '16px', padding: '28px',
-                border: '1px solid #e0e0e0'
-              }}>
+              <div key={item.id} style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', border: '1px solid #e0e0e0' }}>
+
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                   <div>
@@ -148,7 +228,7 @@ export default function AdminApprovals() {
                       {getStatusBadge(item.status)}
                     </div>
                     <div style={{ fontSize: '12px', color: '#888' }}>
-                      Submitted by tailor · {new Date(item.created_at).toLocaleDateString()}
+                      Submitted by {item.created_by === 'tailor' ? 'tailor' : 'admin'} · {new Date(item.created_at).toLocaleDateString()}
                     </div>
                   </div>
                   <div style={{ fontWeight: 'bold', fontSize: '18px' }}>AED {item.price}</div>
@@ -191,7 +271,23 @@ export default function AdminApprovals() {
 
                 {/* Photos */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '10px' }}>Photos:</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 'bold' }}>Photos:</div>
+                    {item.status === 'approved' && !item.photo_main && (
+                      <button
+                        onClick={() => generatePhotosForItem(item)}
+                        disabled={generatingPhotos[item.id] === 'generating'}
+                        style={{
+                          padding: '8px 16px', backgroundColor: '#7c3aed', color: 'white',
+                          border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px'
+                        }}>
+                        {generatingPhotos[item.id] === 'generating' ? '🔄 Generating...' : '🤖 Generate AI Photos'}
+                      </button>
+                    )}
+                    {generatingPhotos[item.id] === 'done' && (
+                      <span style={{ fontSize: '13px', color: '#16a34a', fontWeight: 'bold' }}>✅ Photos generated!</span>
+                    )}
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                     {[
                       { key: 'photo_main', label: '⭐ Front View' },
@@ -212,14 +308,15 @@ export default function AdminApprovals() {
                             style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
                         ) : (
                           <div>
-                            <div style={{ fontSize: '24px', marginBottom: '4px' }}>📷</div>
+                            <div style={{ fontSize: '24px', marginBottom: '4px' }}>
+                              {generatingPhotos[item.id] === 'generating' ? '🔄' : '📷'}
+                            </div>
                             <label style={{ cursor: 'pointer' }}>
                               <span style={{ fontSize: '10px', backgroundColor: '#1a1a1a', color: 'white', padding: '4px 8px', borderRadius: '4px' }}>
                                 Upload
                               </span>
                               <input type="file" accept="image/*" style={{ display: 'none' }}
-                                onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], item.id, photo.key)}
-                              />
+                                onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], item.id, photo.key)} />
                             </label>
                           </div>
                         )}
@@ -228,7 +325,7 @@ export default function AdminApprovals() {
                   </div>
                 </div>
 
-                {/* Actions for pending items */}
+                {/* Approve / Reject */}
                 {item.status === 'pending' && (
                   <div style={{ borderTop: '1px solid #e0e0e0', paddingTop: '16px' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
@@ -245,8 +342,7 @@ export default function AdminApprovals() {
                           placeholder="Rejection reason (required to reject)..."
                           style={{
                             width: '100%', padding: '10px', borderRadius: '8px',
-                            border: '1px solid #ddd', fontSize: '13px', boxSizing: 'border-box',
-                            marginBottom: '8px'
+                            border: '1px solid #ddd', fontSize: '13px', boxSizing: 'border-box', marginBottom: '8px'
                           }}
                         />
                         <button onClick={() => handleReject(item.id)} disabled={loading} style={{
@@ -262,10 +358,7 @@ export default function AdminApprovals() {
 
                 {/* Rejection reason display */}
                 {item.status === 'rejected' && item.rejection_reason && (
-                  <div style={{
-                    marginTop: '12px', padding: '12px', backgroundColor: '#fee2e2',
-                    borderRadius: '8px', fontSize: '13px', color: '#991b1b'
-                  }}>
+                  <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#fee2e2', borderRadius: '8px', fontSize: '13px', color: '#991b1b' }}>
                     ❌ Rejection reason: {item.rejection_reason}
                   </div>
                 )}
