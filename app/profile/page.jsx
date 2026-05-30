@@ -2,9 +2,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
-const GULF_COUNTRIES = ['UAE', 'Saudi Arabia', 'Kuwait', 'Qatar', 'Bahrain', 'Oman']
-const ARAB_COUNTRIES = ['Egypt', 'Jordan', 'Lebanon', 'Syria', 'Iraq', 'Palestine', 'Libya', 'Tunisia', 'Algeria', 'Morocco', 'Yemen', 'Sudan']
-
 const ALL_COUNTRIES = [
   'UAE', 'Saudi Arabia', 'Kuwait', 'Qatar', 'Bahrain', 'Oman',
   'Egypt', 'Jordan', 'Lebanon', 'Syria', 'Iraq', 'Palestine',
@@ -21,35 +18,12 @@ export default function Profile() {
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
   const [errors, setErrors] = useState({})
-  const [familyMembers, setFamilyMembers] = useState([])
-  const [showAddMember, setShowAddMember] = useState(false)
-  const [newMember, setNewMember] = useState({
-    name: '', relationship: '', gender: '', date_of_birth: ''
-  })
-  const [profile, setProfile] = useState({
-    full_name: '', phone: '', gender: '', date_of_birth: '', nationality: '',
-    fit_shirts: '', fit_trousers: '', fit_suits: '',
-    fit_thobes: '', fit_abayas: '', fit_dresses: ''
-  })
   const [dobDay, setDobDay] = useState('')
   const [dobMonth, setDobMonth] = useState('')
   const [dobYear, setDobYear] = useState('')
-
-  const getFitOptions = (gender, nationality) => {
-    const isGulf = GULF_COUNTRIES.includes(nationality)
-    const isArab = ARAB_COUNTRIES.includes(nationality)
-    const isMale = gender === 'Male'
-    const isFemale = gender === 'Female'
-    const options = []
-    options.push({ label: 'Shirts & Tops', key: 'fit_shirts', fits: ['Skinny', 'Slim', 'Regular', 'Relaxed', 'Loose'] })
-    options.push({ label: 'Trousers & Pants', key: 'fit_trousers', fits: ['Skinny', 'Slim', 'Regular', 'Relaxed', 'Loose'] })
-    if (!isFemale) options.push({ label: 'Suits & Blazers', key: 'fit_suits', fits: ['Slim', 'Regular', 'Relaxed'] })
-    if (isFemale) options.push({ label: 'Suits & Blazers', key: 'fit_suits', fits: ['Slim', 'Regular', 'Relaxed'] })
-    if (isMale && isGulf) options.push({ label: 'Thobes & Kanduras', key: 'fit_thobes', fits: ['Slim', 'Regular', 'Loose'] })
-    if (isFemale && (isGulf || isArab)) options.push({ label: 'Abayas & Modest Wear', key: 'fit_abayas', fits: ['Fitted', 'Regular', 'Loose'] })
-    if (isFemale) options.push({ label: 'Dresses & Skirts', key: 'fit_dresses', fits: ['Fitted', 'Regular', 'Loose'] })
-    return options
-  }
+  const [profile, setProfile] = useState({
+    full_name: '', phone: '', gender: '', date_of_birth: '', nationality: ''
+  })
 
   useEffect(() => {
     const init = async () => {
@@ -60,22 +34,15 @@ export default function Profile() {
         const { data: existingProfile } = await supabase
           .from('profiles').select('*').eq('id', data.user.id).single()
         if (existingProfile) {
-          const formattedProfile = {
+          setProfile({
             full_name: existingProfile.full_name || '',
             phone: existingProfile.phone || '',
             gender: existingProfile.gender || '',
             date_of_birth: existingProfile.date_of_birth ? existingProfile.date_of_birth.slice(0, 10) : '',
             nationality: existingProfile.nationality || '',
-            fit_shirts: existingProfile.fit_shirts || '',
-            fit_trousers: existingProfile.fit_trousers || '',
-            fit_suits: existingProfile.fit_suits || '',
-            fit_thobes: existingProfile.fit_thobes || '',
-            fit_abayas: existingProfile.fit_abayas || '',
-            fit_dresses: existingProfile.fit_dresses || '',
-          }
-          setProfile(formattedProfile)
-          if (formattedProfile.date_of_birth) {
-            const parts = formattedProfile.date_of_birth.split('-')
+          })
+          if (existingProfile.date_of_birth) {
+            const parts = existingProfile.date_of_birth.slice(0, 10).split('-')
             setDobYear(parts[0] || '')
             setDobMonth(parts[1] || '')
             setDobDay(parts[2] || '')
@@ -83,9 +50,6 @@ export default function Profile() {
         } else {
           setProfile(prev => ({ ...prev, full_name: data.user.user_metadata.full_name || '' }))
         }
-        const { data: members } = await supabase
-          .from('family_members').select('*').eq('owner_id', data.user.id)
-        setFamilyMembers(members || [])
       }
     }
     init()
@@ -114,62 +78,23 @@ export default function Profile() {
     if (!validate()) return
     setLoading(true)
     await supabase.from('profiles').upsert({
-  id: user.id, ...profile, email: user.email, role: 'customer'
-})
+      id: user.id, ...profile, email: user.email, role: 'customer'
+    })
     setSaved(true)
     setLoading(false)
     setTimeout(() => setSaved(false), 3000)
   }
 
-  const addFamilyMember = async () => {
-    if (!newMember.name || !newMember.relationship || !newMember.gender) return
-    const { data } = await supabase.from('family_members').insert({
-      owner_id: user.id, ...newMember
-    }).select()
-    if (data) {
-      setFamilyMembers([...familyMembers, data[0]])
-      setShowAddMember(false)
-      setNewMember({ name: '', relationship: '', gender: '', date_of_birth: '' })
-    }
-  }
-
-  const removeFamilyMember = async (id) => {
-    await supabase.from('family_members').delete().eq('id', id)
-    setFamilyMembers(familyMembers.filter(m => m.id !== id))
-  }
-
-  const getAge = (dob) => {
-    if (!dob) return null
-    const today = new Date()
-    const birth = new Date(dob)
-    let age = today.getFullYear() - birth.getFullYear()
-    const m = today.getMonth() - birth.getMonth()
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
-    return age
-  }
-
-  const getMemberIcon = (relationship) => {
-    const icons = {
-      'wife': '👩', 'husband': '👨', 'son': '👦',
-      'daughter': '👧', 'father': '👴', 'mother': '👵',
-      'brother': '👦', 'sister': '👧'
-    }
-    return icons[relationship?.toLowerCase()] || '👤'
-  }
-
   if (!user) return <div style={{ padding: '40px' }}>Loading...</div>
 
-  const fitOptions = getFitOptions(profile.gender, profile.nationality)
+  const inputStyle = (hasError) => ({
+    width: '100%', padding: '10px', borderRadius: '8px', fontSize: '14px',
+    boxSizing: 'border-box', border: hasError ? '1px solid #dc2626' : '1px solid #ddd'
+  })
 
   const selectStyle = (hasError) => ({
     width: '100%', padding: '10px', borderRadius: '8px', fontSize: '14px',
     backgroundColor: 'white', cursor: 'pointer',
-    border: hasError ? '1px solid #dc2626' : '1px solid #ddd'
-  })
-
-  const inputStyle = (hasError) => ({
-    width: '100%', padding: '10px', borderRadius: '8px', fontSize: '14px',
-    boxSizing: 'border-box',
     border: hasError ? '1px solid #dc2626' : '1px solid #ddd'
   })
 
@@ -187,11 +112,12 @@ export default function Profile() {
       </nav>
 
       <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>👤 Personal Details</h2>
+        <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>Your personal information and measurements</p>
 
-        {/* My Profile */}
+        {/* Personal Details */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>👤 My Profile</h2>
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>Your personal details</p>
+          <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '24px' }}>Personal Information</h3>
 
           {/* Email */}
           <div style={{ marginBottom: '16px' }}>
@@ -302,64 +228,6 @@ export default function Profile() {
             {errors.nationality && <p style={errorStyle}>Nationality is required</p>}
           </div>
 
-          {/* Fit Preferences */}
-          {profile.gender && profile.nationality && (
-            <div style={{ marginBottom: '32px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>👔 Fit Preferences</h3>
-              <p style={{ color: '#888', fontSize: '13px', marginBottom: '20px' }}>
-                Set your default fit per garment — can be changed per order
-              </p>
-              {fitOptions.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  {fitOptions.map(({ label, key, fits }) => (
-                    <div key={key}>
-                      <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>
-                        {label}
-                      </label>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {fits.map((fit) => (
-                          <button key={fit} onClick={() => setProfile({ ...profile, [key]: fit })}
-                            style={{
-                              padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
-                              border: profile[key] === fit ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
-                              backgroundColor: profile[key] === fit ? '#1a1a1a' : 'white',
-                              color: profile[key] === fit ? 'white' : '#555'
-                            }}>{fit}</button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ padding: '16px', backgroundColor: '#f9f9f9', borderRadius: '8px', color: '#888', fontSize: '14px' }}>
-                  Select your gender and nationality above to see fit options
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Show message if gender/nationality not set yet */}
-          {(!profile.gender || !profile.nationality) && (
-            <div style={{ marginBottom: '32px', padding: '16px', backgroundColor: '#fef3c7', borderRadius: '12px', fontSize: '14px', color: '#92400e' }}>
-              💡 Select your gender and nationality above to unlock personalized fit preferences!
-            </div>
-          )}
-
-          {/* Measurements */}
-          <div style={{
-            backgroundColor: '#f5f0eb', borderRadius: '12px', padding: '20px',
-            marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-          }}>
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>📏 My Measurements</div>
-              <div style={{ fontSize: '13px', color: '#888' }}>Required to place orders</div>
-            </div>
-            <a href="/measurements" style={{
-              backgroundColor: '#1a1a1a', color: 'white', padding: '10px 20px',
-              borderRadius: '8px', textDecoration: 'none', fontSize: '14px'
-            }}>Scan Now →</a>
-          </div>
-
           {/* Save */}
           <button onClick={handleSave} disabled={loading} style={{
             width: '100%', padding: '14px',
@@ -371,119 +239,22 @@ export default function Profile() {
           </button>
         </div>
 
-        {/* Family Members */}
+        {/* Measurements */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>👨‍👩‍👧 Family Members</h2>
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '32px' }}>
-            Add family members to order on their behalf
+          <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>📏 My Measurements</h3>
+          <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>
+            Required to place orders. Scan once and we save them for all future orders.
           </p>
-
-          {familyMembers.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              {familyMembers.map((member) => (
-                <div key={member.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '16px', borderRadius: '12px', border: '1px solid #e0e0e0', marginBottom: '12px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontSize: '28px' }}>{getMemberIcon(member.relationship)}</span>
-                    <div>
-                      <div style={{ fontWeight: 'bold' }}>{member.name}</div>
-                      <div style={{ fontSize: '13px', color: '#888' }}>
-                        {member.relationship}
-                        {member.date_of_birth ? ` • Age ${getAge(member.date_of_birth)}` : ''}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <a href={`/measurements?member=${member.id}`} style={{
-                      padding: '8px 12px', backgroundColor: '#f5f0eb', color: '#1a1a1a',
-                      borderRadius: '8px', textDecoration: 'none', fontSize: '13px'
-                    }}>📏 Measure</a>
-                    <button onClick={() => removeFamilyMember(member.id)} style={{
-                      padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626',
-                      border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px'
-                    }}>Remove</button>
-                  </div>
-                </div>
-              ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', backgroundColor: '#f5f0eb', borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>3D Body Scan</div>
+              <div style={{ fontSize: '13px', color: '#888' }}>Takes less than 2 minutes</div>
             </div>
-          )}
-
-          {showAddMember && (
-            <div style={{ backgroundColor: '#f5f0eb', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
-              <h3 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Add Family Member</h3>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                  Name <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input value={newMember.name}
-                  onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                  placeholder="e.g. Sarah" style={inputStyle(false)} />
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                  Relationship <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <select value={newMember.relationship}
-                  onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value })}
-                  style={selectStyle(false)}>
-                  <option value="">Select relationship</option>
-                  <option value="wife">Wife</option>
-                  <option value="husband">Husband</option>
-                  <option value="son">Son</option>
-                  <option value="daughter">Daughter</option>
-                  <option value="father">Father</option>
-                  <option value="mother">Mother</option>
-                  <option value="brother">Brother</option>
-                  <option value="sister">Sister</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                    Gender <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  <select value={newMember.gender}
-                    onChange={(e) => setNewMember({ ...newMember, gender: e.target.value })}
-                    style={selectStyle(false)}>
-                    <option value="">Select</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Date of Birth</label>
-                  <input type="date" value={newMember.date_of_birth}
-                    onChange={(e) => setNewMember({ ...newMember, date_of_birth: e.target.value })}
-                    style={inputStyle(false)} />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={addFamilyMember} style={{
-                  flex: 1, padding: '12px', backgroundColor: '#1a1a1a', color: 'white',
-                  border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold'
-                }}>Add Member</button>
-                <button onClick={() => setShowAddMember(false)} style={{
-                  flex: 1, padding: '12px', backgroundColor: 'transparent', color: '#888',
-                  border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer'
-                }}>Cancel</button>
-              </div>
-            </div>
-          )}
-
-          {!showAddMember && (
-            <button onClick={() => setShowAddMember(true)} style={{
-              width: '100%', padding: '14px', backgroundColor: 'transparent',
-              color: '#1a1a1a', border: '2px dashed #1a1a1a', borderRadius: '12px',
-              fontSize: '16px', cursor: 'pointer'
-            }}>➕ Add Family Member</button>
-          )}
+            <a href="/measurements" style={{
+              backgroundColor: '#1a1a1a', color: 'white', padding: '10px 20px',
+              borderRadius: '8px', textDecoration: 'none', fontSize: '14px', fontWeight: 'bold'
+            }}>Scan Now →</a>
+          </div>
         </div>
       </div>
     </main>

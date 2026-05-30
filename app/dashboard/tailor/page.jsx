@@ -23,13 +23,38 @@ export default function TailorDashboard() {
         setProfile(profileData)
 
         // Get pending invitations count
-        const { data: invitations } = await supabase
-          .from('tailor_catalog_items')
-          .select('id')
-          .eq('tailor_id', data.user.id)
-          .eq('status', 'pending')
-        
-        setStats(prev => ({ ...prev, pendingInvitations: invitations?.length || 0 }))
+const { data: invitations } = await supabase
+  .from('tailor_catalog_items')
+  .select('id')
+  .eq('tailor_id', data.user.id)
+  .eq('status', 'pending')
+
+// Get orders count
+const { data: newOrders } = await supabase
+  .from('orders')
+  .select('id')
+  .eq('tailor_id', data.user.id)
+  .eq('status', 'pending')
+
+const { data: inProgressOrders } = await supabase
+  .from('orders')
+  .select('id')
+  .eq('tailor_id', data.user.id)
+  .eq('status', 'in_progress')
+
+const { data: completedOrders } = await supabase
+  .from('orders')
+  .select('id')
+  .eq('tailor_id', data.user.id)
+  .eq('status', 'completed')
+
+setStats({
+  pendingInvitations: invitations?.length || 0,
+  newOrders: newOrders?.length || 0,
+  inProgress: inProgressOrders?.length || 0,
+  completed: completedOrders?.length || 0,
+  earnings: 0
+})
       }
     }
     init()
@@ -133,11 +158,7 @@ export default function TailorDashboard() {
               href: '/dashboard/tailor/invitations',
               badge: stats.pendingInvitations > 0 ? stats.pendingInvitations : null
             },
-            {
-              icon: '📋', title: 'My Orders',
-              desc: 'View and manage incoming orders',
-              href: '#'
-            },
+            { icon: '📋', title: 'My Orders', desc: 'View and manage incoming orders', href: '/dashboard/tailor/orders' },
             {
               icon: '👔', title: 'My Catalog',
               desc: 'Add and manage your own items',
