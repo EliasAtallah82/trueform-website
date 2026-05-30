@@ -14,24 +14,23 @@ const SKILLS = [
 export default function AdminCatalog() {
   const [user, setUser] = useState(null)
   const [items, setItems] = useState([])
-  const [mode, setMode] = useState(null) // null | 'individual' | 'bulk'
+  const [mode, setMode] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState({})
-
-  // Individual form
-  const [newItem, setNewItem] = useState({
-    name: '', description: '', category: '', gender: '',
-    occasion: '', modesty_level: '', fabrics: '', colors: '',
-    price: '', turnaround_days: '', is_active: true,
-    photo_main: '', photo_back: '', photo_detail: '', photo_model: '',
-    required_skills: []
-  })
-
-  // Bulk upload
+  const [sendingToTailors, setSendingToTailors] = useState({})
+  const [activeFilter, setActiveFilter] = useState('all')
   const [bulkItems, setBulkItems] = useState([])
   const [bulkErrors, setBulkErrors] = useState([])
   const [bulkSubmitted, setBulkSubmitted] = useState(false)
   const [bulkSaving, setBulkSaving] = useState(false)
+
+  const [newItem, setNewItem] = useState({
+    name: '', description: '', category: '', gender: '',
+    occasion: '', modesty_level: '', fabrics: '', colors: '',
+    price: '', turnaround_days: '', is_active: false,
+    photo_main: '', photo_back: '', photo_detail: '', photo_model: '',
+    required_skills: []
+  })
 
   useEffect(() => {
     const init = async () => {
@@ -39,15 +38,34 @@ export default function AdminCatalog() {
       if (!data.user) window.location.href = '/auth/login'
       else {
         setUser(data.user)
-        const { data: catalogItems } = await supabase
-          .from('catalog').select('*').order('created_at', { ascending: false })
-        setItems(catalogItems || [])
+        fetchItems()
       }
     }
     init()
   }, [])
 
-  // ── Helpers ────────────────────────────────────────────────────────
+  const fetchItems = async () => {
+    // First fetch catalog items
+    const { data: catalogData } = await supabase
+      .from('catalog')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (!catalogData) { setItems([]); return }
+
+    // Then fetch tailor_catalog_items separately
+    const { data: tailorItems } = await supabase
+      .from('tailor_catalog_items')
+      .select('id, catalog_id, status, tailor_id')
+
+    // Merge them
+    const merged = catalogData.map(item => ({
+      ...item,
+      tailor_catalog_items: (tailorItems || []).filter(t => t.catalog_id === item.id)
+    }))
+
+    setItems(merged)
+  }
 
   const generateAIPrompt = (item) => {
     return [
@@ -75,34 +93,84 @@ export default function AdminCatalog() {
     }
   }
 
-  const inviteAllTailors = async (catalogId) => {
-    const { data: tailors } = await supabase
-      .from('tailor_profiles').select('user_id')
-    if (!tailors || tailors.length === 0) return 0
+  const getItemStatus = (item) => {
+    const hasPhotos = !!item.photo_main
+    const tailorItems = item.tailor_catalog_items || []
+    const sentToTailors = tailorItems.length > 0
+    const hasApprovedTailor = tailorItems.some(t => t.status === 'approved')
+    if (item.is_active && hasApprovedTailor) return 'live'
+    if (hasApprovedTailor) return 'approved'
+    if (sentToTailors) return 'sent'
+    if (hasPhotos) return 'ready'
+    return 'draft'
+  }
+
+  const getStatusBadge = (item) => {
+    const status = getItemStatus(item)
+    const map = {
+      draft: { bg: '#f3f4f6', color: '#6b7280', label: '📝 Draft — Upload Photos' },
+      ready: { bg: '#fef3c7', color: '#92400e', label: '📸 Ready — Send to Tailors' },
+      sent: { bg: '#eff6ff', color: '#1e40af', label: '📬 Sent to Tailors' },
+      approved: { bg: '#f0fdf4', color: '#166534', label: '✅ Tailor Approved' },
+      live: { bg: '#dcfce7', color: '#166534', label: '🟢 Live' },
+    }
+    const s = map[status]
+    return (
+      <span style={{ backgroundColor: s.bg, color: s.color, fontSize: '11px', padding: '3px 10px', borderRadius: '20px', fontWeight: 'bold' }}>
+        {s.label}
+      </span>
+    )
+  }
+
+  const sendToAllTailors = async (item) => {
+    if (!item.photo_main) {
+      alert('Please upload at least the main photo before sending to tailors!')
+      return
+    }
+    if (!confirm(`Send "${item.name}" to all tailors for pricing?`)) return
+    setSendingToTailors(prev => ({ ...prev, [item.id]: true }))
+    const { data: tailors } = await supabase.from('tailor_profiles').select('user_id')
+    if (!tailors || tailors.length === 0) {
+      alert('No tailors found on the platform yet!')
+      setSendingToTailors(prev => ({ ...prev, [item.id]: false }))
+      return
+    }
+    const { data: existing } = await supabase
+      .from('tailor_catalog_items').select('tailor_id').eq('catalog_id', item.id)
+    const existingTailorIds = (existing || []).map(e => e.tailor_id)
+    const newTailors = tailors.filter(t => !existingTailorIds.includes(t.user_id))
+    if (newTailors.length === 0) {
+      alert('Already sent to all tailors!')
+      setSendingToTailors(prev => ({ ...prev, [item.id]: false }))
+      return
+    }
     await supabase.from('tailor_catalog_items').insert(
-      tailors.map(tailor => ({
-        catalog_id: catalogId,
+      newTailors.map(tailor => ({
+        catalog_id: item.id,
         tailor_id: tailor.user_id,
         status: 'pending'
       }))
     )
-    return tailors.length
+    setSendingToTailors(prev => ({ ...prev, [item.id]: false }))
+    await fetchItems()
+    alert(`✅ "${item.name}" sent to ${newTailors.length} tailor(s) for pricing!`)
   }
 
-  // ── Photo upload ───────────────────────────────────────────────────
-
-  const uploadPhoto = async (file, photoType) => {
-    setUploading(prev => ({ ...prev, [photoType]: true }))
+  const uploadPhoto = async (file, photoType, itemId) => {
+    setUploading(prev => ({ ...prev, [`${itemId}-${photoType}`]: true }))
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${photoType}.${fileExt}`
     const { error } = await supabase.storage.from('catalog-photos').upload(fileName, file)
-    if (error) { alert('Upload error: ' + error.message); setUploading(prev => ({ ...prev, [photoType]: false })); return }
+    if (error) { alert('Upload error: ' + error.message); setUploading(prev => ({ ...prev, [`${itemId}-${photoType}`]: false })); return }
     const { data: urlData } = supabase.storage.from('catalog-photos').getPublicUrl(fileName)
-    setNewItem(prev => ({ ...prev, [photoType]: urlData.publicUrl }))
-    setUploading(prev => ({ ...prev, [photoType]: false }))
+    if (itemId !== 'new') {
+      await supabase.from('catalog').update({ [photoType]: urlData.publicUrl }).eq('id', itemId)
+      setItems(items.map(i => i.id === itemId ? { ...i, [photoType]: urlData.publicUrl } : i))
+    } else {
+      setNewItem(prev => ({ ...prev, [photoType]: urlData.publicUrl }))
+    }
+    setUploading(prev => ({ ...prev, [`${itemId}-${photoType}`]: false }))
   }
-
-  // ── Individual save ────────────────────────────────────────────────
 
   const handleSave = async () => {
     if (!newItem.name || !newItem.category || !newItem.price) {
@@ -116,30 +184,25 @@ export default function AdminCatalog() {
       price: parseFloat(newItem.price),
       turnaround_days: parseInt(newItem.turnaround_days) || 7,
       status: 'approved',
-      is_active: true,
+      is_active: false,
       created_by: 'admin',
       ai_prompt: generateAIPrompt(newItem)
     }).select()
-
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
-
     if (data) {
-      const invitedCount = await inviteAllTailors(data[0].id)
-      setItems([data[0], ...items])
+      await fetchItems()
       setMode(null)
       setNewItem({
         name: '', description: '', category: '', gender: '',
         occasion: '', modesty_level: '', fabrics: '', colors: '',
-        price: '', turnaround_days: '', is_active: true,
+        price: '', turnaround_days: '', is_active: false,
         photo_main: '', photo_back: '', photo_detail: '', photo_model: '',
         required_skills: []
       })
-      alert(`✅ Item added and sent to ${invitedCount} tailor(s) for pricing!`)
+      alert('✅ Item saved as draft! Upload photos then send to tailors.')
     }
     setSaving(false)
   }
-
-  // ── Bulk upload ────────────────────────────────────────────────────
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
@@ -150,37 +213,27 @@ export default function AdminCatalog() {
       const ws = wb.Sheets['Items']
       if (!ws) { alert('Could not find the "Items" sheet. Please use the TrueForm template.'); return }
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
-
       const parsed = []
-      const errors = []
-
       rows.forEach((row, i) => {
         const name = String(row['Item Name *'] || '').trim()
         const category = String(row['Category *'] || '').trim()
         const price = parseFloat(row['Price AED (VAT incl) *']) || 0
-
         const rowErrors = []
         if (!name) rowErrors.push('Item Name is required')
         if (!category) rowErrors.push('Category is required')
         if (!price || price <= 0) rowErrors.push('Price must be greater than 0')
-
         const item = {
-          name,
-          description: String(row['Description'] || '').trim(),
-          category,
-          gender: String(row['Gender'] || '').trim(),
+          name, description: String(row['Description'] || '').trim(),
+          category, gender: String(row['Gender'] || '').trim(),
           occasion: String(row['Occasion'] || '').trim(),
           modesty_level: String(row['Modesty Level'] || '').trim(),
           fabrics: String(row['Available Fabrics'] || '').trim(),
           colors: String(row['Available Colors'] || '').trim(),
-          price,
-          turnaround_days: parseInt(row['Turnaround Days']) || 7,
-          _errors: rowErrors,
-          _rowNum: i + 2
+          price, turnaround_days: parseInt(row['Turnaround Days']) || 7,
+          _errors: rowErrors, _rowNum: i + 2
         }
         if (name || category || price) parsed.push(item)
       })
-
       setBulkErrors(parsed.filter(r => r._errors.length > 0))
       setBulkItems(parsed.filter(r => r._errors.length === 0))
       setBulkSubmitted(false)
@@ -191,42 +244,24 @@ export default function AdminCatalog() {
   const handleBulkSubmit = async () => {
     if (bulkItems.length === 0) { alert('No valid items to submit!'); return }
     setBulkSaving(true)
-
     const toInsert = bulkItems.map(item => ({
-      name: item.name,
-      description: item.description,
-      category: item.category,
-      gender: item.gender,
-      occasion: item.occasion,
-      modesty_level: item.modesty_level,
-      fabrics: item.fabrics,
-      colors: item.colors,
-      price: item.price,
-      turnaround_days: item.turnaround_days,
-      status: 'approved',
-      is_active: true,
-      created_by: 'admin',
-      ai_prompt: generateAIPrompt(item)
+      name: item.name, description: item.description,
+      category: item.category, gender: item.gender,
+      occasion: item.occasion, modesty_level: item.modesty_level,
+      fabrics: item.fabrics, colors: item.colors,
+      price: item.price, turnaround_days: item.turnaround_days,
+      status: 'approved', is_active: false,
+      created_by: 'admin', ai_prompt: generateAIPrompt(item)
     }))
-
     const { data, error } = await supabase.from('catalog').insert(toInsert).select()
     if (error) { alert('Error: ' + error.message); setBulkSaving(false); return }
-
     if (data) {
-      // Invite all tailors to each item
-      let totalTailors = 0
-      for (const item of data) {
-        const count = await inviteAllTailors(item.id)
-        totalTailors = count // same count for all items
-      }
-      setItems([...data, ...items])
+      await fetchItems()
       setBulkSubmitted(true)
       setBulkSaving(false)
-      alert(`✅ ${data.length} items added to catalog and sent to ${totalTailors} tailor(s) for pricing!`)
+      alert(`✅ ${data.length} items saved as drafts! Now upload photos for each item.`)
     }
   }
-
-  // ── Other actions ──────────────────────────────────────────────────
 
   const toggleSkill = (skill) => {
     setNewItem(prev => ({
@@ -254,35 +289,54 @@ export default function AdminCatalog() {
   const selectStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }
   const pricing = newItem.price ? calcPricing(newItem.price) : null
 
-  const PhotoUpload = ({ label, photoType, isMain }) => (
-    <div style={{
-      border: isMain ? '2px solid #1a1a1a' : '1px dashed #ddd',
-      borderRadius: '12px', padding: '16px', textAlign: 'center',
-      backgroundColor: isMain ? '#f5f0eb' : 'white'
-    }}>
-      <div style={{ fontSize: '12px', fontWeight: isMain ? 'bold' : 'normal', marginBottom: '8px', color: isMain ? '#1a1a1a' : '#888' }}>
-        {label}
+  const filteredItems = items.filter(item => {
+    if (activeFilter === 'all') return true
+    return getItemStatus(item) === activeFilter
+  })
+
+  const draftCount = items.filter(i => getItemStatus(i) === 'draft').length
+  const readyCount = items.filter(i => getItemStatus(i) === 'ready').length
+  const sentCount = items.filter(i => getItemStatus(i) === 'sent').length
+  const liveCount = items.filter(i => getItemStatus(i) === 'live').length
+
+  const InlinePhotoUpload = ({ item, photoType, label }) => {
+    const isUploading = uploading[`${item.id}-${photoType}`]
+    return (
+      <div style={{
+        border: photoType === 'photo_main' ? '2px solid #1a1a1a' : '1px dashed #ddd',
+        borderRadius: '8px', padding: '8px', textAlign: 'center',
+        backgroundColor: photoType === 'photo_main' ? '#f5f0eb' : 'white'
+      }}>
+        <div style={{ fontSize: '10px', marginBottom: '4px', fontWeight: photoType === 'photo_main' ? 'bold' : 'normal', color: '#555' }}>
+          {label}
+        </div>
+        {item[photoType] ? (
+          <div>
+            <img src={item[photoType]} alt={label}
+              style={{ width: '100%', height: '60px', objectFit: 'cover', borderRadius: '4px', marginBottom: '4px' }} />
+            <label style={{ cursor: 'pointer' }}>
+              <span style={{ fontSize: '10px', backgroundColor: '#1a1a1a', color: 'white', padding: '3px 8px', borderRadius: '4px' }}>
+                {isUploading ? '...' : 'Replace'}
+              </span>
+              <input type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], photoType, item.id)} />
+            </label>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: '20px', marginBottom: '4px' }}>📷</div>
+            <label style={{ cursor: 'pointer' }}>
+              <span style={{ fontSize: '10px', backgroundColor: '#1a1a1a', color: 'white', padding: '3px 8px', borderRadius: '4px' }}>
+                {isUploading ? 'Uploading...' : 'Upload'}
+              </span>
+              <input type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], photoType, item.id)} />
+            </label>
+          </div>
+        )}
       </div>
-      {newItem[photoType] ? (
-        <div>
-          <img src={newItem[photoType]} alt={label} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
-          <button onClick={() => setNewItem(prev => ({ ...prev, [photoType]: '' }))}
-            style={{ fontSize: '11px', color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>
-        </div>
-      ) : (
-        <div>
-          <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
-          <label style={{ cursor: 'pointer' }}>
-            <span style={{ fontSize: '12px', backgroundColor: '#1a1a1a', color: 'white', padding: '6px 12px', borderRadius: '6px' }}>
-              {uploading[photoType] ? 'Uploading...' : 'Upload Photo'}
-            </span>
-            <input type="file" accept="image/*" style={{ display: 'none' }}
-              onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0], photoType)} />
-          </label>
-        </div>
-      )}
-    </div>
-  )
+    )
+  }
 
   return (
     <main style={{ minHeight: '100vh', backgroundColor: '#f5f0eb' }}>
@@ -291,7 +345,7 @@ export default function AdminCatalog() {
         <a href="/dashboard/admin" style={{ color: 'white', fontSize: '14px' }}>← Back to Dashboard</a>
       </nav>
 
-      <div style={{ padding: '40px', maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ padding: '40px', maxWidth: '1100px', margin: '0 auto' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -319,33 +373,34 @@ export default function AdminCatalog() {
           )}
         </div>
 
-        {/* Info banner */}
-        <div style={{
-          backgroundColor: '#1a1a1a', borderRadius: '12px', padding: '16px',
-          marginBottom: '24px', fontSize: '13px', color: '#ccc'
-        }}>
-          <span style={{ color: 'white', fontWeight: 'bold' }}>👑 Admin Range: </span>
-          Items you add are sent to ALL tailors for pricing. Tailors submit their price, you approve the best fits. Cheapest approved tailor gets orders first.
+        {/* Flow banner */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '12px' }}>📋 Item Journey</div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {[
+              { label: '📝 Draft', sub: `${draftCount} items`, color: '#f3f4f6', text: '#6b7280' },
+              { label: '→' },
+              { label: '📸 Photos Ready', sub: `${readyCount} items`, color: '#fef3c7', text: '#92400e' },
+              { label: '→' },
+              { label: '📬 Sent to Tailors', sub: `${sentCount} items`, color: '#eff6ff', text: '#1e40af' },
+              { label: '→' },
+              { label: '🟢 Live', sub: `${liveCount} items`, color: '#dcfce7', text: '#166534' },
+            ].map((step, i) => (
+              step.label === '→'
+                ? <span key={i} style={{ color: '#aaa', fontSize: '18px' }}>→</span>
+                : <div key={i} style={{ backgroundColor: step.color, padding: '8px 14px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: step.text }}>{step.label}</div>
+                  {step.sub && <div style={{ fontSize: '11px', color: step.text }}>{step.sub}</div>}
+                </div>
+            ))}
+          </div>
         </div>
 
-        {/* ── INDIVIDUAL FORM ── */}
+        {/* INDIVIDUAL FORM */}
         {mode === 'individual' && (
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px', marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '24px' }}>Add New Item</h3>
-
-            {/* Photos */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>Photos</label>
-              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
-                Upload photos now or generate AI photos later from the approvals page.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-                <PhotoUpload label="⭐ Front View (Main)" photoType="photo_main" isMain={true} />
-                <PhotoUpload label="Back View" photoType="photo_back" isMain={false} />
-                <PhotoUpload label="Detail Shot" photoType="photo_detail" isMain={false} />
-                <PhotoUpload label="On Model" photoType="photo_model" isMain={false} />
-              </div>
-            </div>
+            <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>Add New Item</h3>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>Item will be saved as draft. Upload photos then send to tailors.</p>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Item Name *</label>
@@ -381,9 +436,6 @@ export default function AdminCatalog() {
                       <span style={{ color: row.green ? '#16a34a' : row.red ? '#dc2626' : '#1a1a1a', fontWeight: row.bold || row.green ? 'bold' : 'normal' }}>{row.value}</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: '11px', color: '#888', marginTop: '8px', padding: '8px', backgroundColor: '#e5e7eb', borderRadius: '6px' }}>
-                    💡 Actual tailor payment determined by their bid. Lower bid = more margin for TrueForm.
-                  </div>
                 </div>
               )}
             </div>
@@ -441,47 +493,27 @@ export default function AdminCatalog() {
               </div>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
+            <div style={{ marginBottom: '24px' }}>
               <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Turnaround (days)</label>
               <input type="number" value={newItem.turnaround_days} onChange={(e) => setNewItem(p => ({ ...p, turnaround_days: e.target.value }))}
                 placeholder="e.g. 7" style={{ ...inputStyle, maxWidth: '200px' }} />
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>Required Skills</label>
-              <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>Optional — for reference only on admin range items</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' }}>
-                {SKILLS.map((skill) => (
-                  <button key={skill} onClick={() => toggleSkill(skill)} style={{
-                    padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', textAlign: 'left', fontSize: '13px',
-                    border: newItem.required_skills.includes(skill) ? '2px solid #1a1a1a' : '2px solid #e0e0e0',
-                    backgroundColor: newItem.required_skills.includes(skill) ? '#1a1a1a' : 'white',
-                    color: newItem.required_skills.includes(skill) ? 'white' : '#555'
-                  }}>
-                    {newItem.required_skills.includes(skill) ? '✅ ' : ''}{skill}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <button onClick={handleSave} disabled={saving} style={{
               width: '100%', padding: '14px', backgroundColor: '#1a1a1a', color: 'white',
               border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer'
             }}>
-              {saving ? 'Adding & Sending to Tailors...' : '✅ Add to Catalog & Send to All Tailors'}
+              {saving ? 'Saving...' : '💾 Save as Draft'}
             </button>
           </div>
         )}
 
-        {/* ── BULK UPLOAD ── */}
+        {/* BULK UPLOAD */}
         {mode === 'bulk' && (
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '40px', marginBottom: '24px' }}>
             <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>📊 Bulk Upload</h3>
-            <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>
-              Upload your starter catalog all at once. All items will be sent to tailors for pricing immediately.
-            </p>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>Items saved as drafts. Upload photos then send to tailors.</p>
 
-            {/* Step 1 */}
             <div style={{ marginBottom: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#1a1a1a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>1</div>
@@ -497,7 +529,6 @@ export default function AdminCatalog() {
               </div>
             </div>
 
-            {/* Step 2 */}
             <div style={{ marginBottom: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#1a1a1a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>2</div>
@@ -515,10 +546,9 @@ export default function AdminCatalog() {
               </div>
             </div>
 
-            {/* Errors */}
             {bulkErrors.length > 0 && (
               <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fee2e2', borderRadius: '12px' }}>
-                <div style={{ fontWeight: 'bold', color: '#991b1b', marginBottom: '8px' }}>⚠️ {bulkErrors.length} row(s) have errors and will be skipped:</div>
+                <div style={{ fontWeight: 'bold', color: '#991b1b', marginBottom: '8px' }}>⚠️ {bulkErrors.length} row(s) have errors:</div>
                 {bulkErrors.map((row, i) => (
                   <div key={i} style={{ fontSize: '13px', color: '#991b1b', marginBottom: '4px' }}>
                     Row {row._rowNum}: {row.name || '(no name)'} — {row._errors.join(', ')}
@@ -527,12 +557,11 @@ export default function AdminCatalog() {
               </div>
             )}
 
-            {/* Step 3 - Preview */}
             {bulkItems.length > 0 && !bulkSubmitted && (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                   <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#1a1a1a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>3</div>
-                  <span style={{ fontWeight: 'bold', fontSize: '15px' }}>Review {bulkItems.length} items ready to upload</span>
+                  <span style={{ fontWeight: 'bold', fontSize: '15px' }}>Review {bulkItems.length} items</span>
                 </div>
                 <div style={{ marginLeft: '40px' }}>
                   <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
@@ -545,125 +574,179 @@ export default function AdminCatalog() {
                         </tr>
                       </thead>
                       <tbody>
-                        {bulkItems.map((item, i) => {
-                          const maxTailorPayment = (item.price / 1.05 * 0.60).toFixed(2)
-                          return (
-                            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#f9f9f9' : 'white', borderBottom: '1px solid #e0e0e0' }}>
-                              <td style={{ padding: '10px 12px', color: '#888' }}>{i + 1}</td>
-                              <td style={{ padding: '10px 12px', fontWeight: '500' }}>{item.name}</td>
-                              <td style={{ padding: '10px 12px' }}>{item.category}</td>
-                              <td style={{ padding: '10px 12px' }}>{item.gender || '—'}</td>
-                              <td style={{ padding: '10px 12px' }}>{item.price}</td>
-                              <td style={{ padding: '10px 12px' }}>{item.turnaround_days} days</td>
-                              <td style={{ padding: '10px 12px', color: '#16a34a', fontWeight: 'bold' }}>AED {maxTailorPayment}</td>
-                            </tr>
-                          )
-                        })}
+                        {bulkItems.map((item, i) => (
+                          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#f9f9f9' : 'white', borderBottom: '1px solid #e0e0e0' }}>
+                            <td style={{ padding: '10px 12px', color: '#888' }}>{i + 1}</td>
+                            <td style={{ padding: '10px 12px', fontWeight: '500' }}>{item.name}</td>
+                            <td style={{ padding: '10px 12px' }}>{item.category}</td>
+                            <td style={{ padding: '10px 12px' }}>{item.gender || '—'}</td>
+                            <td style={{ padding: '10px 12px' }}>{item.price}</td>
+                            <td style={{ padding: '10px 12px' }}>{item.turnaround_days} days</td>
+                            <td style={{ padding: '10px 12px', color: '#16a34a', fontWeight: 'bold' }}>AED {(item.price / 1.05 * 0.60).toFixed(2)}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', backgroundColor: '#f5f0eb', borderRadius: '12px', marginBottom: '20px' }}>
-                    <div style={{ fontSize: '32px' }}>📬</div>
-                    <div>
-                      <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>All tailors will be invited to submit prices</div>
-                      <div style={{ fontSize: '13px', color: '#555' }}>After upload, every tailor on the platform receives these items and can submit their price. You review and approve the best bids.</div>
-                    </div>
+                  <div style={{ padding: '16px', backgroundColor: '#fef3c7', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', color: '#92400e' }}>
+                    ⚠️ Items will be saved as <strong>drafts</strong> — hidden from customers and tailors until you upload photos and send to tailors manually.
                   </div>
-
                   <button onClick={handleBulkSubmit} disabled={bulkSaving} style={{
                     width: '100%', padding: '14px', backgroundColor: '#1a1a1a', color: 'white',
                     border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer'
                   }}>
-                    {bulkSaving ? `Uploading ${bulkItems.length} items & inviting tailors...` : `✅ Upload All ${bulkItems.length} Items & Send to Tailors`}
+                    {bulkSaving ? `Saving ${bulkItems.length} items...` : `💾 Save All ${bulkItems.length} Items as Drafts`}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Success */}
             {bulkSubmitted && (
               <div style={{ textAlign: 'center', padding: '32px', backgroundColor: '#dcfce7', borderRadius: '12px' }}>
                 <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
                 <div style={{ fontWeight: 'bold', fontSize: '18px', color: '#166534', marginBottom: '8px' }}>
-                  {bulkItems.length} items uploaded successfully!
+                  {bulkItems.length} items saved as drafts!
                 </div>
                 <div style={{ fontSize: '14px', color: '#166534', marginBottom: '20px' }}>
-                  All tailors have been notified and can now submit their prices. Check the Approvals page to review bids.
+                  Next: upload photos for each item, then click "Send to Tailors".
                 </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                  <button onClick={() => { setMode(null); setBulkItems([]); setBulkErrors([]) }} style={{
-                    padding: '10px 24px', backgroundColor: '#1a1a1a', color: 'white',
-                    border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold'
-                  }}>View Catalog</button>
-                  <a href="/dashboard/admin/approvals" style={{
-                    padding: '10px 24px', backgroundColor: 'white', color: '#1a1a1a',
-                    border: '2px solid #1a1a1a', borderRadius: '8px', textDecoration: 'none', fontWeight: 'bold'
-                  }}>Review Bids →</a>
-                </div>
+                <button onClick={() => { setMode(null); setBulkItems([]); setBulkErrors([]) }} style={{
+                  padding: '10px 24px', backgroundColor: '#1a1a1a', color: 'white',
+                  border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold'
+                }}>View Catalog →</button>
               </div>
             )}
           </div>
         )}
 
-        {/* ── CATALOG GRID ── */}
-        {items.length === 0 ? (
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#888' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>👔</div>
-            <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>No items yet</h3>
-            <p>Use "Add Item" or "Bulk Upload" to start building your catalog!</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-            {items.map((item) => (
-              <div key={item.id} style={{
-                backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden',
-                border: item.is_active ? '1px solid #e0e0e0' : '1px dashed #ccc',
-                opacity: item.is_active ? 1 : 0.6
-              }}>
-                <div style={{ height: '200px', backgroundColor: '#f5f0eb', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                  {item.photo_main ? (
-                    <img src={item.photo_main} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ fontSize: '60px' }}>👔</div>
-                  )}
-                  {!item.is_active && (
-                    <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#fee2e2', color: '#dc2626', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>Hidden</div>
-                  )}
-                  <div style={{ position: 'absolute', top: '8px', left: '8px', backgroundColor: item.created_by === 'admin' ? '#dbeafe' : '#f0fdf4', color: item.created_by === 'admin' ? '#1e40af' : '#166534', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>
-                    {item.created_by === 'admin' ? '👑 Admin' : '✂️ Tailor'}
-                  </div>
-                  {!item.photo_main && (
-                    <div style={{ position: 'absolute', bottom: '8px', right: '8px', backgroundColor: '#7c3aed', color: 'white', fontSize: '11px', padding: '3px 8px', borderRadius: '20px' }}>
-                      📷 No photos yet
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <h3 style={{ fontWeight: 'bold', fontSize: '16px' }}>{item.name}</h3>
-                    <span style={{ fontWeight: 'bold' }}>AED {item.price}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                    {item.category && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.category}</span>}
-                    {item.gender && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.gender}</span>}
-                    {item.modesty_level && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '3px 8px', borderRadius: '20px' }}>{item.modesty_level}</span>}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => toggleActive(item.id, item.is_active)} style={{
-                      flex: 1, padding: '8px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px',
-                      backgroundColor: item.is_active ? '#fee2e2' : '#dcfce7',
-                      color: item.is_active ? '#dc2626' : '#16a34a', border: 'none'
-                    }}>{item.is_active ? 'Hide' : 'Show'}</button>
-                    <button onClick={() => deleteItem(item.id)} style={{
-                      flex: 1, padding: '8px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px',
-                      backgroundColor: '#fee2e2', color: '#dc2626', border: 'none'
-                    }}>Delete</button>
-                  </div>
-                </div>
-              </div>
+        {/* FILTER TABS */}
+        {!mode && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            {[
+              { key: 'all', label: `All (${items.length})` },
+              { key: 'draft', label: `📝 Draft (${draftCount})` },
+              { key: 'ready', label: `📸 Ready (${readyCount})` },
+              { key: 'sent', label: `📬 Sent (${sentCount})` },
+              { key: 'live', label: `🟢 Live (${liveCount})` },
+            ].map((tab) => (
+              <button key={tab.key} onClick={() => setActiveFilter(tab.key)} style={{
+                padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                backgroundColor: activeFilter === tab.key ? '#1a1a1a' : 'white',
+                color: activeFilter === tab.key ? 'white' : '#555',
+                border: activeFilter === tab.key ? 'none' : '1px solid #ddd'
+              }}>{tab.label}</button>
             ))}
           </div>
+        )}
+
+        {/* CATALOG LIST */}
+        {!mode && (
+          filteredItems.length === 0 ? (
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#888' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>👔</div>
+              <h3 style={{ fontWeight: 'bold', marginBottom: '8px' }}>No items here</h3>
+              <p>Use "Add Item" or "Bulk Upload" to start building your catalog!</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {filteredItems.map((item) => {
+                const hasPhotos = !!item.photo_main
+                const tailorItems = item.tailor_catalog_items || []
+                const sentToTailors = tailorItems.length > 0
+                const approvedTailors = tailorItems.filter(t => t.status === 'approved').length
+
+                return (
+                  <div key={item.id} style={{
+                    backgroundColor: 'white', borderRadius: '16px',
+                    border: '1px solid #e0e0e0', overflow: 'hidden'
+                  }}>
+                    <div style={{ display: 'flex' }}>
+                      <div style={{ width: '140px', minHeight: '140px', backgroundColor: '#f5f0eb', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {item.photo_main
+                          ? <img src={item.photo_main} alt={item.name} style={{ width: '100%', height: '140px', objectFit: 'cover' }} />
+                          : <div style={{ fontSize: '40px' }}>👔</div>
+                        }
+                      </div>
+
+                      <div style={{ padding: '20px', flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <h3 style={{ fontWeight: 'bold', fontSize: '16px' }}>{item.name}</h3>
+                              {getStatusBadge(item)}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {item.category && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '2px 8px', borderRadius: '20px' }}>{item.category}</span>}
+                              {item.gender && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '2px 8px', borderRadius: '20px' }}>{item.gender}</span>}
+                              {item.modesty_level && <span style={{ fontSize: '11px', backgroundColor: '#f5f0eb', padding: '2px 8px', borderRadius: '20px' }}>{item.modesty_level}</span>}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 'bold', fontSize: '16px' }}>AED {item.price}</div>
+                            {approvedTailors > 0 && (
+                              <div style={{ fontSize: '11px', color: '#16a34a' }}>{approvedTailors} tailor(s) approved</div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: '12px' }}>
+                          <div style={{ fontSize: '11px', color: '#888', marginBottom: '6px' }}>Photos:</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 80px)', gap: '8px' }}>
+                            <InlinePhotoUpload item={item} photoType="photo_main" label="⭐ Front" />
+                            <InlinePhotoUpload item={item} photoType="photo_back" label="Back" />
+                            <InlinePhotoUpload item={item} photoType="photo_detail" label="Detail" />
+                            <InlinePhotoUpload item={item} photoType="photo_model" label="Model" />
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {hasPhotos && !sentToTailors && (
+                            <button onClick={() => sendToAllTailors(item)}
+                              disabled={sendingToTailors[item.id]} style={{
+                                padding: '8px 16px', backgroundColor: '#1a1a1a', color: 'white',
+                                border: 'none', borderRadius: '8px', cursor: 'pointer',
+                                fontWeight: 'bold', fontSize: '13px'
+                              }}>
+                              {sendingToTailors[item.id] ? '📬 Sending...' : '📬 Send to Tailors'}
+                            </button>
+                          )}
+
+                          {sentToTailors && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ padding: '8px 16px', backgroundColor: '#eff6ff', color: '#1e40af', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                                📬 Sent to {tailorItems.length} tailor(s)
+                              </span>
+                              <button onClick={() => sendToAllTailors(item)}
+                                disabled={sendingToTailors[item.id]} style={{
+                                  padding: '8px 16px', backgroundColor: 'white', color: '#1a1a1a',
+                                  border: '2px solid #1a1a1a', borderRadius: '8px', cursor: 'pointer',
+                                  fontWeight: 'bold', fontSize: '13px'
+                                }}>
+                                🔄 Resend to New Tailors
+                              </button>
+                            </div>
+                          )}
+
+                          {approvedTailors > 0 && (
+                            <button onClick={() => toggleActive(item.id, item.is_active)} style={{
+                              padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                              backgroundColor: item.is_active ? '#fee2e2' : '#dcfce7',
+                              color: item.is_active ? '#dc2626' : '#16a34a', border: 'none', fontWeight: 'bold'
+                            }}>{item.is_active ? 'Hide' : 'Make Live'}</button>
+                          )}
+
+                          <button onClick={() => deleteItem(item.id)} style={{
+                            padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px',
+                            backgroundColor: '#fee2e2', color: '#dc2626', border: 'none'
+                          }}>Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
         )}
       </div>
     </main>

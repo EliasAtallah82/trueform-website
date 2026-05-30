@@ -8,26 +8,36 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
 
-  const handleLogin = async (e) => {
-    e.preventDefault()
-    setLoading(true)
+const handleLogin = async (e) => {
+  e.preventDefault()
+  setLoading(true)
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  })
 
-    if (error) {
-      setMessage(error.message)
-    } else {
-      const role = data.user.user_metadata.role
-      if (role === 'tailor') window.location.href = '/dashboard/tailor'
-      else if (role === 'courier') window.location.href = '/dashboard/courier'
-      else if (role === 'admin') window.location.href = '/dashboard/admin'
-      else window.location.href = '/dashboard/customer'
-    }
+  if (error) {
+    setMessage(error.message)
     setLoading(false)
+    return
   }
+
+  // Get role from profiles table
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', data.user.id)
+    .single()
+
+  const role = profile?.role
+  if (role === 'tailor') window.location.href = '/dashboard/tailor'
+  else if (role === 'courier') window.location.href = '/dashboard/courier'
+  else if (role === 'admin') window.location.href = '/dashboard/admin'
+  else window.location.href = '/dashboard/customer'
+
+  setLoading(false)
+}
 
   return (
     <main style={{

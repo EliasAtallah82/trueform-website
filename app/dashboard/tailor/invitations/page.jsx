@@ -23,13 +23,35 @@ export default function TailorInvitations() {
   }, [])
 
   const fetchInvitations = async (userId) => {
-    const { data } = await supabase
-      .from('tailor_catalog_items')
-      .select('*, catalog(*)')
-      .eq('tailor_id', userId)
-      .order('created_at', { ascending: false })
-    setInvitations(data || [])
+  // Fetch tailor_catalog_items separately
+  const { data: tailorItems, error } = await supabase
+    .from('tailor_catalog_items')
+    .select('*')
+    .eq('tailor_id', userId)
+
+  console.log('Tailor items error:', error)
+  console.log('Tailor items:', tailorItems)
+
+  if (!tailorItems || tailorItems.length === 0) {
+    setInvitations([])
+    return
   }
+
+  // Fetch catalog items separately
+  const catalogIds = tailorItems.map(t => t.catalog_id)
+  const { data: catalogItems } = await supabase
+    .from('catalog')
+    .select('*')
+    .in('id', catalogIds)
+
+  // Merge
+  const merged = tailorItems.map(t => ({
+    ...t,
+    catalog: catalogItems?.find(c => c.id === t.catalog_id) || null
+  }))
+
+  setInvitations(merged)
+}
 
   const handleSubmitPrice = async (inv) => {
     const price = parseFloat(priceInputs[inv.id])

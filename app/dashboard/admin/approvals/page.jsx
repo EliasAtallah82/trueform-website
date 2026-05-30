@@ -33,13 +33,33 @@ export default function AdminApprovals() {
   }
 
   const fetchBids = async () => {
-    const { data } = await supabase
-      .from('tailor_catalog_items')
-      .select('*, catalog(*), profiles(full_name, email)')
-      .eq('status', 'price_submitted')
-      .order('tailor_price', { ascending: true })
-    setBids(data || [])
-  }
+  // Fetch bids separately
+  const { data: bidItems } = await supabase
+    .from('tailor_catalog_items')
+    .select('*')
+    .eq('status', 'price_submitted')
+
+  if (!bidItems || bidItems.length === 0) { setBids([]); return }
+
+  // Fetch catalog items
+  const catalogIds = [...new Set(bidItems.map(b => b.catalog_id))]
+  const { data: catalogItems } = await supabase
+    .from('catalog').select('*').in('id', catalogIds)
+
+  // Fetch tailor profiles
+  const tailorIds = [...new Set(bidItems.map(b => b.tailor_id))]
+  const { data: profileItems } = await supabase
+    .from('profiles').select('id, full_name, email').in('id', tailorIds)
+
+  // Merge
+  const merged = bidItems.map(b => ({
+    ...b,
+    catalog: catalogItems?.find(c => c.id === b.catalog_id) || null,
+    profiles: profileItems?.find(p => p.id === b.tailor_id) || null
+  }))
+
+  setBids(merged)
+}
 
   // ── Catalog item actions ──────────────────────────────────────────
 
@@ -67,14 +87,21 @@ export default function AdminApprovals() {
   // ── Tailor bid actions ────────────────────────────────────────────
 
   const handleApproveBid = async (bid) => {
-    setLoading(true)
-    await supabase.from('tailor_catalog_items')
-      .update({ status: 'approved' })
-      .eq('id', bid.id)
-    setBids(bids.filter(b => b.id !== bid.id))
-    setLoading(false)
-    alert(`✅ ${bid.profiles?.full_name || 'Tailor'} approved for "${bid.catalog?.name}" at AED ${bid.tailor_price}`)
-  }
+  setLoading(true)
+  // Approve the tailor bid
+  await supabase.from('tailor_catalog_items')
+    .update({ status: 'approved' })
+    .eq('id', bid.id)
+
+  // Auto-activate the catalog item now that at least one tailor is approved
+  await supabase.from('catalog')
+    .update({ is_active: true })
+    .eq('id', bid.catalog_id)
+
+  setBids(bids.filter(b => b.id !== bid.id))
+  setLoading(false)
+  alert(`✅ ${bid.profiles?.full_name || 'Tailor'} approved! "${bid.catalog?.name}" is now live for customers.`)
+}
 
   const handleRejectBid = async (bid) => {
     if (!rejectionReason[bid.id]) { alert('Please provide a rejection reason!'); return }
