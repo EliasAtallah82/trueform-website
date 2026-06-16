@@ -93,6 +93,7 @@ export default function AdminDashboard() {
             { icon: '📋', title: 'All Orders', desc: 'Monitor and manage every order', href: '#' },
             { icon: '⏳', title: 'Catalog Approvals', desc: `${stats.pendingApprovals} items waiting for review`, href: '/dashboard/admin/approvals', highlight: stats.pendingApprovals > 0 },
             { icon: '👔', title: 'Catalog Management', desc: 'View and manage all catalog items', href: '/dashboard/admin/catalog' },
+{ icon: '🎨', title: 'Designers', desc: 'Manage and onboard designers', href: '/dashboard/admin/designers' },
             { icon: '💰', title: 'Finances', desc: 'Revenue, payouts and transactions', href: '#' },
             { icon: '🤖', title: 'AI Advisor', desc: 'Monitor and train the style advisor', href: '#' },
             { icon: '⚠️', title: 'Disputes', desc: 'Handle customer complaints', href: '#' },
