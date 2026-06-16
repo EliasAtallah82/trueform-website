@@ -31,11 +31,11 @@ const handleLogin = async (e) => {
     .single()
 
   const role = profile?.role
-  if (role === 'tailor') window.location.href = '/dashboard/tailor'
-  else if (role === 'courier') window.location.href = '/dashboard/courier'
-  else if (role === 'admin') window.location.href = '/dashboard/admin'
-  else window.location.href = '/dashboard/customer'
-
+if (role === 'tailor') window.location.href = '/dashboard/tailor'
+else if (role === 'courier') window.location.href = '/dashboard/courier'
+else if (role === 'admin') window.location.href = '/dashboard/admin'
+else if (role === 'designer') window.location.href = '/dashboard/designer'
+else window.location.href = '/dashboard/customer'
   setLoading(false)
 }
 
